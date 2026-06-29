@@ -1,0 +1,12 @@
+# 不备份私钥
+ssh/id_*
+!ssh/id_*.pub
+!ssh/config
+
+# 不备份日志/缓存/会话数据
+hermes/logs/
+hermes/*.bak.*
+hermes/skills-output.txt
+
+# 不备份 GNOME 完整 dump（太大），只保留子配置
+gnome/dconf-full-backup.txt

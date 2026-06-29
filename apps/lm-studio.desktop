@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=LM Studio
+Comment=Discover, download, and run local LLMs
+Exec=/home/bobobears/LM-Studio.AppImage --no-sandbox
+Icon=lm-studio
+Type=Application
+Categories=Development;Utility;
+Terminal=false
+StartupWMClass=lm-studio

@@ -1,0 +1,7 @@
+
+# GitHub SSH 配置
+Host github.com
+    HostName github.com
+    IdentityFile ~/.ssh/github
+    User git
+    IdentitiesOnly yes
