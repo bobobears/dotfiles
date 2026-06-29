@@ -1,8 +1,6 @@
 [user]
 	name = 60591511
 	email = 605391511@qq.com
-[url "https://ghproxy.net/https://github.com/"]
-	insteadOf = https://github.com/
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
