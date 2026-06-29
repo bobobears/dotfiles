@@ -8,6 +8,8 @@ Ubuntu 系统配置备份，用于快速恢复开发环境。
 |------|------|
 | shell/ | .bashrc, .profile, .gitconfig |
 | hermes/ | Hermes Agent 配置(config.yaml, SOUL.md) |
+| hermes/memories/ | 持久记忆 (USER.md, MEMORY.md) |
+| hermes/skills/ | 所有已安装技能 (SKILL.md + 资源文件) |
 | ssh/ | SSH 客户端配置(config) + 公钥 |
 | packages/ | 系统包列表 |
 | gnome/ | GNOME 桌面/快捷键设置 |

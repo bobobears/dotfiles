@@ -10,3 +10,7 @@ hermes/skills-output.txt
 
 # 不备份 GNOME 完整 dump（太大），只保留子配置
 gnome/dconf-full-backup.txt
+
+# Skills 中忽略 git 仓库和缓存
+hermes/skills/*/.git/
+hermes/skills/*/node_modules/

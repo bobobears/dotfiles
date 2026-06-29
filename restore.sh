@@ -58,8 +58,16 @@ do_cmd chmod 644 "$HOME/.ssh/"*.pub
 echo ""
 echo "── [4/6] Hermes Agent ──"
 if [ -d "$HOME/.hermes" ]; then
-    [ -f "$DIR/hermes/config.yaml" ] && do_cmd cp "$DIR/hermes/config.yaml" "$HOME/.hermes/config.yaml"
     [ -f "$DIR/hermes/SOUL.md" ] && do_cmd cp "$DIR/hermes/SOUL.md" "$HOME/.hermes/SOUL.md"
+    # 恢复持久记忆
+    mkdir -p "$HOME/.hermes/memories"
+    [ -f "$DIR/hermes/memories/USER.md" ] && do_cmd cp "$DIR/hermes/memories/USER.md" "$HOME/.hermes/memories/"
+    [ -f "$DIR/hermes/memories/MEMORY.md" ] && do_cmd cp "$DIR/hermes/memories/MEMORY.md" "$HOME/.hermes/memories/"
+    # 恢复技能（复制到 skills 目录）
+    if [ -d "$DIR/hermes/skills" ] && [ "$(ls -A "$DIR/hermes/skills" 2>/dev/null)" ]; then
+        do_cmd cp -r "$DIR/hermes/skills/"* "$HOME/.hermes/skills/"
+        echo "  → 技能已恢复 ($(ls -d "$DIR/hermes/skills/"*/ 2>/dev/null | wc -l) 个)"
+    fi
     echo "  → Hermes 技能需重新安装: hermes skill install <name>"
 else
     echo "  → ~/.hermes/ 不存在，先安装 Hermes Agent"
