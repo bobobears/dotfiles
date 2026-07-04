@@ -13,7 +13,10 @@ data-science
 debugging-hermes-tui-commands
 dispatching-parallel-agents
 dogfood
+dotfiles-backup
 email
+finance
+game-lore-and-fiction
 github
 github-agent-skill-search
 linear

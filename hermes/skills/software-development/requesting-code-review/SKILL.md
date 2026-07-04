@@ -1,7 +1,11 @@
 ---
 name: requesting-code-review
 description: "Pre-commit review: security scan, quality gates, auto-fix."
-version: 2.0.0
+version: 2.1.0
+user_conventions:
+  language: zh-CN  # 执行提示和进度显示强制中文
+  style: situational  # 日常事务简洁型，重要决策完整型
+  prohibitions: [no-blessing, no-excessive-confirmation]
 author: Hermes Agent (adapted from obra/superpowers + MorAlekss)
 license: MIT
 platforms: [linux, macos, windows]
@@ -267,6 +271,15 @@ The two-stage review (spec compliance + code quality) uses this pipeline.
 tests exist, tests pass, no regressions.
 
 **plan:** Validates implementation matches the plan requirements.
+
+## 用户沟通风格（金医生）
+
+当向金医生报告审查结果时：
+- **语言**：全部中文，包括命令输出、进度提示、检查结果
+- **格式**：用表格呈现对比信息（通过/失败/建议），不用大段文字
+- **简洁**：日常审查直接给结论和修复步骤，不铺垫背景
+- **禁用语**：结尾不加祝福语、问候语、客套话
+- **确认**：批量安全确认合并为一次，不逐条反复确认
 
 ## Pitfalls
 

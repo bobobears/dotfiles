@@ -1,7 +1,7 @@
 ---
 name: lm-studio
 description: "Configure, optimize, and troubleshoot LM Studio local inference server — memory tuning, crash/deadlock diagnosis, unified-memory systems (NVIDIA GB10/Project DIGITS), context sizing, and Hermes integration."
-version: 1.7.0
+version: 1.9.0
 author: Agent
 platforms: [linux, macos]
 tags: [lm-studio, inference, serving, gguf, local-llm, openai-api]
@@ -40,17 +40,33 @@ chmod +x ~/LM-Studio.AppImage
 ### Upgrade (overwrite existing)
 
 ```bash
-# 1. Kill running LM Studio
-killall lm-studio
+# 1. Find the running AppImage process (NOT "lm-studio" — it's the AppImage path)
+pgrep -af "LM-Studio\.AppImage" | grep -v grep
 
-# 2. Force kill if still running
-killall -9 lm-studio
+# 2. Kill the main process first
+pkill -f "LM-Studio.AppImage" 2>/dev/null
+sleep 1
 
-# 3. Replace AppImage (config/models in ~/.lmstudio/ persist)
+# 3. Clean up residual crashpad handler (it keeps the old mount busy, blocking overwrite)
+pkill -f "LM-Stu[A-Z]" 2>/dev/null || true
+sleep 1
+
+# 4. Verify no remaining LM Studio processes
+pgrep -af "LM-Studio" || echo "✅ Clean"
+
+# 5. Remove old AppImage BEFORE copying (cp can silently fail to overwrite
+#    an in-use file — rm gives a clean slate)
+rm -f ~/LM-Studio.AppImage
+
+# 6. Copy new AppImage (wildcard works when only one file matches)
 cp ~/下载/LM-Studio-*.AppImage ~/LM-Studio.AppImage
 chmod +x ~/LM-Studio.AppImage
 
-# 4. Launch new version
+# 7. Verify copy integrity
+ls -lh ~/LM-Studio.AppImage ~/下载/LM-Studio-*.AppImage
+md5sum ~/LM-Studio.AppImage ~/下载/LM-Studio-*.AppImage
+
+# 8. Launch new version
 ~/LM-Studio.AppImage --no-sandbox
 ```
 
@@ -185,7 +201,21 @@ dmesg | tail -40                 # kernel messages (OOM, PCIe errors)
 uptime                           # uptime — short uptime = recent crash
 ```
 
-### Step 4: Check LM Studio Config Files
+### Step 4: Compare Server Logs Across Versions (n_ctx Regression)
+
+The most actionable diagnostic for "it worked before the update" crashes: **compare `n_ctx` in server logs** across versions.
+
+```bash
+# Check old and new server logs for n_ctx defaults
+grep "n_ctx=" ~/.lmstudio/server-logs/2026-06/*.log | head -10
+grep "n_ctx=" ~/.lmstudio/server-logs/2026-07/*.log | head -10
+```
+
+A jump like `n_ctx=8192 → n_ctx=262144` (32×) after a LM Studio update is a known regression pattern in llama.cpp 2.23.0+. This change alone can trigger GPU driver timeouts on unified-memory systems (GB10) even when total memory is sufficient, because the larger initial allocation takes longer and exceeds the GPU driver's timeout threshold.
+
+When you find this, the fix is to manually set context length to a reasonable value (e.g. 32768 or 65536) in LM Studio's model settings rather than relying on the backend's inflated default.
+
+### Step 5: Check LM Studio Config Files
 ```bash
 ~/.lmstudio/settings.json              # main settings, context length
 ~/.lmstudio/.internal/http-server-config.json  # JIT, auto-start, port
@@ -245,6 +275,8 @@ Already in `settings.json`:
 ### Model Selection (GB10 Optimal Fit)
 
 For detailed model combo recommendations including task-specific picks (coding vs reasoning vs English vs Chinese), Qwen3.6 vs Llama 3.3 decision tree, Q8_0 vs Q4_K_M tradeoffs, and per-hardware-class guides, see `references/model-combo-recommendations.md`.
+
+For precise KV cache memory calculation at any context length, including the formula, model-architecture extraction from GGUF metadata, and verified dual-model budgets for Qwen3.6-27B + Qwen3.6-35B-A3B, see `references/context-sizing-gb10.md`.
 
 ### Model Selection (GB10 Optimal Fit)
 
@@ -457,6 +489,7 @@ Key services: `nvidia-disable-numa-balancing`, `nvidia-disable-init-on-alloc`, `
 - `modelLoadingGuardrails` only warns — the user can bypass. Always double-check context_length settings.
 - **The CUDA backend on ARM64 is the default** when LM Studio detects an NVIDIA GPU. If you have stability issues with large models, switch to the CPU backend first before assuming it is a hardware fault.
 - **"It worked before the reinstall"** is the #1 diagnostic clue. LM Studio's CUDA backend may not have been active before, or an older LM Studio version used a different memory allocation path.
+- **n_ctx default can jump 32× between llama.cpp versions.** Backend versions 2.22.0 and earlier default to 8192; 2.23.0+ defaults to model-native max (often 262144). This inflated default can trigger GPU driver timeouts on unified-memory systems even when total memory is sufficient. **Always check `n_ctx` in server logs** after an LM Studio update that causes new stability issues. The fix is manual context length reduction in model settings, not a backend downgrade.
 - **A request that causes a jinja template error** ("No user query found in messages") can hang the inference engine. Symptoms: HTTP server responds to `/health` but `/v1/models` returns `{"data":[]}` (no loaded instances) and `/v1/chat/completions` times out. Recovery: kill all lm-studio processes (`killall -9 lm-studio`) and restart.
 
 ## Verification

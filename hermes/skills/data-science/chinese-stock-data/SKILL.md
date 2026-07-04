@@ -266,11 +266,30 @@ df = pro.daily(ts_code=ts_code, start_date="20260501", end_date="20260626")
 | Tencent qt.gtimg.cn | ✅ Works | Best for real-time batch quotes |
 | akshare THS financial | ✅ Works | Reliable ROE source |
 | Tushare daily | ✅ Works | Rate-limited, reliable |
-| 东方财富 push2 | ❌ Blocked | Connection refused (region/network) |
-| 东方财富 datacenter | ✅ Works | For F10 data / dividends |
+| 东方财富 push2 | ❌ Blocked | Router DNS blocks subdomains; bypass with `--resolve` via 114 DNS |
+| 东方财富 datacenter | ✅ Works | F10 dividends + **大宗交易** (see `references/dzjy-block-trade-api.md`) |
 | 搜狐 Sohu K-line | ❌ Dead | API deprecated |
 | 腾讯 ifzq K-line | ❌ Bad params | API format changed |
 | 新浪 K-line | ❌ Not found | Deprecated |
+
+### DNS Bypass for Blocked East Money Subdomains
+
+The router DNS (192.168.31.1) blocks many eastmoney subdomains (e.g. `push2`, `reportapi`, `np-listapi`, `datacenter-web`, `searchapi`). However, these domains DO resolve via alternative DNS (114.114.114.114):
+
+```bash
+# 1. Resolve via 114 DNS
+host datacenter.eastmoney.com 114.114.114.114
+# → datacenter.eastmoney.com is an alias for ...queniukt.com, has address 60.169.2.26
+
+# 2. Use --resolve to bypass system DNS
+curl -sL --max-time 10 -4 "https://datacenter.eastmoney.com/web/api/data/v1/get?reportName=..." \
+  -H "User-Agent: Mozilla/5.0" \
+  --resolve "datacenter.eastmoney.com:443:60.169.2.26"
+```
+
+**Must use** `-4` (IPv4) and `--resolve` together. The `--resolve` flag accepts `hostname:port:address` and hardcodes the IP for that host, bypassing the system DNS. Pick any resolved IP for the target subdomain — they're load-balanced.
+
+See `references/dzjy-block-trade-api.md` for the full block trade (大宗交易) data API using this technique.
 
 ## Trend Analysis (均线趋势评分)
 

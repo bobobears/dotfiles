@@ -13,11 +13,56 @@ A platform adapter that connects via WebSocket (receiving messages) but **fails 
   ```
   or similar for other domains (`ilinkai.weixin.qq.com`, `api.telegram.org`, etc.)
 
+## Two Distinct Failure Modes
+
+### Mode A: `Temporary failure in name resolution` (intermittent)
+
+The DNS server is reachable but occasionally fails to answer for the target domain. Retries may succeed. The gateway log shows intermittent WARNING/ERROR entries.
+
+### Mode B: DNS `REFUSED` (persistent block)
+
+The DNS server actively refuses to answer for the target domain. `host <domain>` returns `REFUSED`, `resolvectl query <domain>` returns `server or network returned error REFUSED`, and `nslookup <domain>` shows `** server can't find <domain>: REFUSED`.
+
+**This is a harder failure:** retries never work. The router's DNS (often `192.168.31.1` on Xiaomi/TP-Link routers in China) actively filters certain domains considered "communication platforms" — including `ilinkai.weixin.qq.com`. The fix requires bypassing the router DNS entirely (see section 4).
+
+### Checking which mode you have
+
+```bash
+host ilinkai.weixin.qq.com
+# "REFUSED" = Mode B (hard block)
+# "Temporary failure" = Mode A (intermittent)
+
+resolvectl query ilinkai.weixin.qq.com
+# "REFUSED" = Mode B
+# timeout or success = Mode A or no problem
+
+# Python direct DNS check (bypasses system resolver)
+python3 -c "
+import socket
+socket.setdefaulttimeout(3)
+try:
+    ips = socket.getaddrinfo('ilinkai.weixin.qq.com', 443)
+    print(f'OK: {ips[0][4][0]}')
+except Exception as e:
+    print(f'FAIL: {e}')
+"
+```
+
+### Cascade Effect
+
+When the router DNS is in Mode B for one domain, it often affects **multiple** domains. A single gateway log showing `REFUSED` for `ilinkai.weixin.qq.com` may coincide with:
+
+- **Provider API failures**: `api.deepseek.com`, `api.openai.com`, or other LLM API endpoints also failing DNS → cron jobs report `Connection error` / `APIConnectionError` in `~/.hermes/logs/agent.log`, even though no gateway configuration changed
+- **Model catalog fetch failures**: `hermes-agent.nousresearch.com` returning `Temporary failure in name resolution` on GUI startup
+- **Other platform API domains**: `open.feishu.cn`, `api.telegram.org`, etc.
+
+**Diagnostic clue:** If multiple independent services fail at the same time with DNS errors, suspect the router DNS, not individual platform tokens.
+
 ## Root Cause
 
 The WebSocket control channel (used for receiving) connects to a different server or IP range than the HTTP API endpoints. When the system DNS server (often the home router's DNS, e.g. `192.168.31.1` on Xiaomi routers) has intermittent failures resolving the API domain, WebSocket stays up while HTTP calls fail.
 
-Common in China behind ISP routers / GFW where DNS can be unstable for non-domestic CDN domains.
+Common in China behind ISP routers / GFW where DNS can be unstable for non-domestic CDN domains, or where the router actively filters certain communications platform domains (Mode B).
 
 ## Debugging Workflow
 
@@ -89,10 +134,9 @@ sudo bash -c 'cat >> /etc/hosts << EOF
 EOF'
 ```
 
-Find current IPs:
-```bash
-dig <domain> +short | grep -E '^[0-9]'
-```
+Find current IPs:\n```bash\ndig <domain> +short | grep -E '^[0-9]'\n\n# If dig is unavailable or router REFUSED blocks it, use nslookup with explicit public DNS:\nnslookup ilinkai.weixin.qq.com 223.5.5.5     # Alibaba DNS (best for China)\nnslookup ilinkai.weixin.qq.com 114.114.114.114 # 114DNS\nnslookup ilinkai.weixin.qq.com 8.8.8.8        # Google DNS (blocked in some CN networks)\n\nThe most reliable method when all public DNS servers are reachable (no GFW blocks) is **nslookup + 223.5.5.5** because Alibaba DNS resolves `.qq.com` domains faster and more reliably than CN-bypassing alternatives. Run multiple DNS servers and compare returned IPs — pick the ones that appear in ≥2 results for the `/etc/hosts` entry.\n\n**DNS-over-HTTPS (DoH) fallback for when even direct nslookup fails:**\n```bash\n# Alibaba DoH (usually works inside China)\npython3 -c \"\nimport urllib.request, json\nurl = 'https://223.5.5.5/resolve?name=ilinkai.weixin.qq.com&type=A'\nreq = urllib.request.Request(url, headers={'Accept': 'application/dns-json'})\nresp = urllib.request.urlopen(req, timeout=10)\ndata = json.loads(resp.read())\nfor a in data.get('Answer', []):\n    if a.get('type') == 1:\n        print(a['data'])\n\"\n```\n> ⚠️ Cloudflare (1.1.1.1) and Google (8.8.8.8) DoH often **time out** from China ISP networks. Try Alibaba (223.5.5.5) DoH first; it's the most reliable from mainland China.\n\n**For REFUSED Mode B domains, write ALL unique IPs to /etc/hosts (not just one):**\n```\n180.101.242.203 ilinkai.weixin.qq.com\n101.227.131.211 ilinkai.weixin.qq.com\n117.89.176.78   ilinkai.weixin.qq.com\n```\nCDN domains like `ilinkai.weixin.qq.com` serve from multiple IPs — writing just one may cause connections to a dead node. Use the intersection of results from 2+ public DNS servers to filter out stale IPs.
+
+**For `ilinkai.weixin.qq.com` (Mode B — hard block):** `/etc/hosts` is the only reliable fix since the router REFUSES all DNS queries for this domain. However, `ilinkai.weixin.qq.com` may be behind a CDN with dynamic IPs, so this is a temporary patch. The durable solution is bypassing the router DNS entirely (method A above) so public DNS servers handle the resolution.
 
 ### 5. Verify the fix
 
@@ -116,3 +160,13 @@ The fix takes effect immediately for the already-running gateway — `/etc/hosts
 | Feishu / Lark | `open.feishu.cn` | WebSocket |
 | WeChat / Weixin | `ilinkai.weixin.qq.com` | HTTP long-poll |
 | Telegram | `api.telegram.org` | HTTP long-poll |
+| DeepSeek API | `api.deepseek.com` | (provider, not gateway) |
+
+## When Platform + Provider Both Fail
+
+A router DNS in Mode B can cause **simultaneous failures** across:
+1. Gateway outbound sends (e.g., WeChat replies)
+2. LLM provider API calls (e.g., DeepSeek completions in cron jobs)
+3. Model catalog fetches (GUI startup)
+
+**What to check first:** resolve any single domain from the affected set. If `host ilinkai.weixin.qq.com` returns `REFUSED`, check `host api.deepseek.com` and `host hermes-agent.nousresearch.com` too. If all return `REFUSED` or `Temporary failure`, the router DNS is the single point of failure — fix it with public DNS fallback (section 4A) and the whole system recovers at once.

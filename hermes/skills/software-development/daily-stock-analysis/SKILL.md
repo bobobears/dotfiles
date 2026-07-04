@@ -117,6 +117,47 @@ python main.py
 - workdir: `/home/bobobears/dsa`
 - prompt: 运行分析 + 读取报告 + 中文摘要
 
+### 8.（可选）数据持久化：评分自动写入本地数据库
+
+DSA 每日分析产生的评分/趋势/操作建议，持久化后可做历史趋势分析、评分走势图、回测验证。
+
+**做法**：创建独立 Post-Processing 脚本，解析报告文件后写入 SQLite。
+
+报告摘要行格式固定，可用正则解析：
+```
+⚪ **宝鹰股份(002047)**: 观望 | 评分 63 | 震荡
+```
+
+解析正则：`\*\*(.+?)\((\d{6})\)\*\*:\s*(.+?)\s*\|\s*评分\s*(\d+)\s*\|\s*(.+)`
+
+数据库建表（`INSERT OR IGNORE` 防重复）：
+```sql
+CREATE TABLE daily_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    date TEXT NOT NULL,
+    score INTEGER,
+    trend TEXT,
+    action TEXT,
+    UNIQUE(code, date)
+);
+```
+
+在 cron job prompt 中链式调用，分析成功后才写库：
+```markdown
+步骤：
+1. cd ~/dsa && source venv/bin/activate && python main.py
+   — 如果 main.py 非零退出则报错
+2. 写入评分数据库：cd ~/private_db && python3 save_dsa_scores.py
+3. 报告结果摘要
+```
+
+**要点**：
+- 脚本只依赖 Python 标准库 `sqlite3`，不需要 DSA 的 venv
+- 日期从报告标题 `# 🎯 2026-07-01 决策仪表盘` 提取
+- 独立运行，可在任意 Python3 环境执行
+- 可配合 `db.py` CLI 工具做 `scores`/`sql` 子命令查询历史评分
+
 ## 验证
 - 健康检查：`curl http://localhost:8000/health` → `{"status":"ok"}`
 - 日志：`logs/stock_analysis_YYYYMMDD.log`

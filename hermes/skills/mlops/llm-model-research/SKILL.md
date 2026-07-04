@@ -54,6 +54,21 @@ Three main data sources, tried in this order:
 - Community quantized versions (e.g. `unsloth/<ModelName>-GGUF`, `bartowski/<ModelName>-GGUF`, `hugging-quants/<ModelName>-AWQ-INT4`) often carry the original benchmark table in their README
 - Check these when the official repo is gated (403 on README)
 
+**Source D: Chinese tech media (for mainland China model releases)**
+- Chinese AI model releases are often covered by domestic tech media before they appear on HF — especially same-day announcements
+- Key sites: **IT之家 (www.ithome.com)**, 雷锋网 (leiphone.com), **36氪 (36kr.com)** — the IT之家 articles are SSR on first load but JS-heavy; content is extractable via `post_content` div search
+- **Article URL discovery trick:** IT之家 uses image URL patterns like `/thumbnail/2026/6/970466_240.jpg` — the article URL is `/0/970/466.htm` (extract the numeric prefix before `_240`). Use this to find the full article when the homepage only shows thumbnails
+- Content extraction approach:
+  ```
+  # Fetch article HTML
+  # Search for <div class="post_content" id="paragraph">...</div>
+  # Remove <script>/<style> tags, strip HTML <p>tags</p>
+  # Lines > 20 chars that aren't JS are the article text
+  ```
+- Meta description is always SSR and contains a reliable summary: `<meta name="description" content="...">`
+- Article footers often contain hyperlinks to related articles from the same press cycle (e.g. HDC 2026 coverage links)
+- IT之家 search (so.ithome.com) may not resolve from some networks — fall back to direct article ID guessing based on neighboring article IDs found on the homepage
+
 ### Step 2: Extract benchmark data
 
 The typical model card benchmark table looks like:
@@ -120,8 +135,9 @@ When the official HF repo is gated (returns "Access restricted" on README):
 - **hf-mirror.com is for API and page access only** — model downloads need the full mirror URL
 - **Gated repos return 403** on `raw/main/README.md` — don't keep retrying, switch to alternative sources
 - **hf-mirror.com/meta-llama page doesn't show Llama 3.3** — Meta doesn't list it on the org page, use direct README URL or community repos instead
-- **Google/Bing search timing out from China** — accept this and rely on hf-mirror.com + GitHub raw content
-- **Model doesn't exist** — confirm negative answer by checking: HF API search, HF org page, GitHub org, official blog. A single community upload with the name doesn't prove official existence
+- **Google/Bing search timing out from China** — accept this and rely on hf-mirror.com + GitHub raw content + Chinese tech media (Source D)
+- **"Today's release" is often NOT on HF yet** — Chinese model announcements appear on IT之家 et al. hours before weights land on HF/GitCode. Don't conclude "model doesn't exist" from HF API absence on release day. Check Source D first for the actual announcement, then re-check HF later.
+- **Model doesn't exist** — confirm negative answer by checking: HF API search, HF org page, GitHub org, official blog, AND Chinese tech media. A single community upload with the name doesn't prove official existence
 - **Knowledge cutoff matters** — check the model card's stated knowledge cutoff date; models with old cutoffs (e.g. Dec 2023) may lack recent information despite being newly released
 - **Only 70B in the family** — note when a model only comes in one size (unlike families with 8B/70B/405B tiers)
 - **Official supported languages ≠ actual capability** — report what the model card states, but note Chinese capability may be present even if not officially supported (e.g. Llama 3.3 doesn't list Chinese but many users report it works)
@@ -130,6 +146,7 @@ When the official HF repo is gated (returns "Access restricted" on README):
 
 See `references/model-card-sources.md` for known model card URL patterns.
 See `references/hf-mirror-queries.md` for common HF API query patterns.
+See `references/example-huawei-openpangu-2-0.md` for a worked example of Chinese tech media scraping for a same-day model release.
 
 ## Related skills
 

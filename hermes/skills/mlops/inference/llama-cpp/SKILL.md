@@ -1,7 +1,7 @@
 ---
 name: llama-cpp
 description: llama.cpp local GGUF inference + HF Hub model discovery.
-version: 2.1.2
+version: 2.2.0
 author: Orchestra Research
 license: MIT
 dependencies: [llama-cpp-python>=0.2.0]
@@ -230,6 +230,7 @@ Source URLs:
 
 ## References
 
+- **[gguf-metadata.md](references/gguf-metadata.md)** — reading GGUF file headers: extract block_count, head_count_kv, context_length, expert topology, and KV cache parameters using the Python `gguf` library
 - **[hub-discovery.md](references/hub-discovery.md)** - URL-only Hugging Face workflows, search patterns, GGUF extraction, and command reconstruction
 - **[advanced-usage.md](references/advanced-usage.md)** — speculative decoding, batched inference, grammar-constrained generation, LoRA, multi-GPU, custom builds, benchmark scripts
 - **[quantization.md](references/quantization.md)** — quant quality tradeoffs, when to use Q4/Q5/Q6/IQ, model size scaling, imatrix

@@ -1,8 +1,8 @@
 model:
   default: deepseek-chat
-  context_length: 128000
   provider: deepseek
   base_url: ''
+  context_length: 128000
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
@@ -298,7 +298,7 @@ auxiliary:
     extra_body: {}
 display:
   compact: false
-  personality: ''
+  personality: technical
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
@@ -351,8 +351,8 @@ display:
       - cwd
   copy_shortcut: auto
   pet:
-    enabled: false
-    slug: ''
+    enabled: true
+    slug: cosmo
     render_mode: auto
     scale: 0.33
     unicode_cols: 0
@@ -556,14 +556,15 @@ approvals:
   mcp_reload_confirm: true
   destructive_slash_confirm: true
 command_allowlist:
-  - script execution via -e/-c flag
   - execute_code
+  - delete in root path
+  - script execution via -e/-c flag
   - force kill processes
   - recursive delete
-  - shell command via -c/-lc flag
   - sudo with combined-flag privilege escalation
-  - delete in root path
+  - shell command via -c/-lc flag
   - force kill processes (killall -KILL)
+  - kill process via pgrep expansion (self-termination)
   - script execution via heredoc
 quick_commands: {}
 platform_hints: {}

@@ -129,7 +129,7 @@ After approval, the user is recognized automatically on their next message.
 
 - `references/weixin-setup.md` — Full WeChat/Weixin setup details and troubleshooting
 - `references/feishu-setup.md` — Full Feishu/Lark setup details and troubleshooting
-- `references/dns-troubleshooting.md` — DNS resolution failure patterns for gateway platforms (especially behind China ISP routers)
+- `references/dns-troubleshooting.md` — DNS resolution failure patterns for gateway platforms (especially behind China ISP routers), covering both intermittent (`Temporary failure`) and persistent (`REFUSED`) failure modes, plus cascade effect on LLM provider APIs
 
 ## Verification
 
@@ -148,6 +148,8 @@ After approval, the user is recognized automatically on their next message.
 - **Feishu `lark-oapi` auto-install**: When the gateway starts after Feishu config, it auto-installs `lark-oapi` via pip. This adds ~30s to first startup. Subsequent startups are instant.
 - **After adding a new platform, restart the gateway**: `hermes gateway restart` picks up new `.env` variables. The setup wizard offers this automatically.
 - **Platform connected but replies not delivered**: If WebSocket/poll shows connected but outbound API calls fail with `NameResolutionError` / `Temporary failure in name resolution`, the system DNS server (often home router) is intermittently failing to resolve the platform's HTTP API domain. Fix with fallback public DNS + `/etc/hosts` entries. Full debugging workflow: `references/dns-troubleshooting.md`.
+- **Router DNS `REFUSED` is harder than `Temporary failure`**: If `host ilinkai.weixin.qq.com` returns `REFUSED` (not `Temporary failure`), the router is actively blocking the domain — retries never help. The fix is bypassing the router DNS entirely via `resolvectl dns` with a public DNS server as primary. `/etc/hosts` alone may not be durable for CDN domains with dynamic IPs.
+- **Router DNS failure cascades to provider APIs**: A single router REFUSING `ilinkai.weixin.qq.com` often also blocks `api.deepseek.com`, `hermes-agent.nousresearch.com`, and other external APIs. If cron jobs (e.g., daily stock analysis) fail with `Connection error` on DeepSeek while the WeChat platform is also failing DNS, both problems share one root cause — fix DNS first, then everything recovers.
 - **Cannot restart gateway from inside the gateway process**: `hermes gateway restart` and `systemctl --user restart` are blocked with "cannot restart or stop the gateway from inside the gateway process" (SIGTERM propagates to child processes). Instead, use `kill -9 <PID>` to force-stop; systemd auto-restarts it. Find the PID with `ps aux | grep 'python.*hermes.*gateway' | grep -v grep | grep -v slash_worker`.
 - **Feishu `home_channel` must be a YAML dict, not a plain string**: After wizard setup, `platforms.feishu.home_channel` may be stored as a string rather than a nested dict. The gateway expects `{platform: feishu, chat_id: "oc_xxx", name: Home}`. `hermes config set` with a JSON string stores it as a literal string — set sub-keys individually: `hermes config set platforms.feishu.home_channel.platform feishu`, `hermes config set platforms.feishu.home_channel.chat_id oc_xxx`, `hermes config set platforms.feishu.home_channel.name Home`.
 - **Feishu `platforms.feishu` may lack `enabled: true`**: The wizard may write the feishu platform section with only `home_channel:` but no `enabled: true`, causing a `TypeError` on startup. Fix: `hermes config set platforms.feishu.enabled true`.
