@@ -24,6 +24,22 @@ Load this when the user says things like "sketch this screen", "show me what X c
 - User wants a diagram — `excalidraw`, `architecture-diagram`
 - The design is already locked — just build it
 
+## Single-mockup mode (design is settled, user just wants to see it)
+
+When the user says "生成一个简单的HTML原型" or "做个mockup给我看看" after the design has been discussed and approved via brainstorming, skip the 2-3 variants workflow entirely. The design direction and data model are already settled — the HTML is for **visual confirmation**, not for comparison.
+
+In this mode:
+
+1. **Skip intake.** Don't ask about feel, references, or core action — the design conversation already produced those answers.
+2. **Build ONE HTML file.** A single complete, self-contained mockup matching the discussed data model.
+3. **Use realistic names and amounts** from the actual domain (e.g. real employee names, real salary items the user listed) — not Lorem ipsum.
+4. **Include the key interactive affordance** the user needs to evaluate: expandable panels for sub-items, editable cells, popovers for nested data (补助明细、考勤明细等). One state transition is enough.
+5. **No README, no variant subdirectories.** Save directly as `sketches/<topic>-mockup/index.html`.
+6. **Verify rendering** with browser tools if available. If no browser is available, confirm file integrity (well-formed HTML, no broken tags) via terminal grep/wc checks.
+7. **Tell the user the file path** and how to open it (`xdg-open` on Linux, `open` on macOS, double-click on Windows).
+
+Also update the interactivity bar — when building for domain experts (non-programmers), prioritize **data completeness and accuracy** over flashy transitions. A mockup that faithfully shows each data field from the discussed model is more useful than one with smooth animations but missing columns.
+
 ## If the user has the full GSD system installed
 
 If `gsd-sketch` shows up as a sibling skill (installed via `npx get-shit-done-cc --hermes`), prefer **`gsd-sketch`** for the full workflow: persistent `.planning/sketches/` with MANIFEST, frontier mode analysis, consistency audits across past sketches, and integration with the rest of GSD. This skill is the lightweight standalone version — one-off sketching without the state machinery.

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ComfyUI
+Comment=AI Image Generation with Stable Diffusion
+Exec=/usr/bin/gnome-terminal -- /home/bobobears/comfy/ComfyUI/start.sh
+Icon=/home/bobobears/comfy/ComfyUI/comfyui-icon.png
+Terminal=false
+Categories=Graphics;Art;
+StartupNotify=false

@@ -70,6 +70,7 @@ byobu						install
 bzip2						install
 ca-certificates					install
 ca-certificates-java				install
+caddy						install
 cheese						install
 cheese-common					install
 chrpath						install
@@ -1339,6 +1340,7 @@ liblsan0:arm64					install
 libltdl-dev:arm64				install
 libltdl7:arm64					install
 liblua5.2-0:arm64				install
+liblua5.3-0:arm64				install
 liblua5.4-0:arm64				install
 liblvm2cmd2.03:arm64				install
 liblwp-mediatypes-perl				install
@@ -1442,6 +1444,7 @@ libnspr4:arm64					install
 libnss-mdns:arm64				install
 libnss-systemd:arm64				install
 libnss3:arm64					install
+libnss3-tools					install
 libntfs-3g89t64:arm64				install
 libntlm0:arm64					install
 libnuma1:arm64					install
@@ -1678,6 +1681,8 @@ librhythmbox-core10:arm64			install
 librist4:arm64					install
 libroc0.3:arm64					install
 librole-tiny-perl				install
+librpm9t64					install
+librpmio9t64					install
 librsvg2-2:arm64				install
 librsvg2-common:arm64				install
 librsync2t64:arm64				install
@@ -2454,6 +2459,8 @@ ripgrep						install
 ristretto					install
 rpcbind						install
 rpcsvc-proto					install
+rpm-common					install
+rpm2cpio					install
 rsync						install
 rsyslog						install
 rtkit						install

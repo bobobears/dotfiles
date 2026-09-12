@@ -367,6 +367,10 @@ Outside of code bugs, three common scenarios have dedicated references under thi
 
 - **`references/diagnosing-gpu-lm-crashes.md`** — System freeze/reboot/crash when running local LLM inference on unified-memory platforms (NVIDIA GB10/Project DIGITS, Apple Silicon, Grace Hopper). Explains why OOM on unified memory causes Xorg SIGABRT + system crash (not a clean CUDA error), with memory budget calculation, LM Studio-specific checks, and the ranked root causes. Use whenever the user's computer "freezes, crashes, or reboots" while running local models.
 
+- **`references/diagnosing-cross-session-error-illusion.md`** — When a user reports an error from a messaging platform (WeChat, Feishu, Telegram) but the gateway log shows the reply was sent successfully. Explains how parallel sessions (TUI + gateway + cron) using different providers can produce coincident errors that get misattributed. Covers log correlation technique across `gateway.log` and `errors.log`, three common parallel failure patterns (LM Studio Jinja, iLink rate limit, DNS cascade), and the key diagnostic insight: correlate the error message against the session ID and platform before explaining the problem.
+
+- **`references/diagnosing-running-old-code.md`** — When you edit source code but the running application behaves as if the old code is still in effect. Covers port ownership checks (`ss -tlnp`), `.pyc` staleness, multiple module copies, uvicorn `--reload` silently not watching, and database file path divergence between processes. Includes a step-by-step diagnosis order sorted by likelihood.
+
 ## Hermes Agent Integration
 
 ### Investigation Tools

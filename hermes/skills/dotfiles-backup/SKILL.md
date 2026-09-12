@@ -20,7 +20,7 @@ metadata:
 
 ## When to use
 
-- 定期备份（建议每周一次）
+- 定期备份（建议每周一次）—— 另见 `system-backup` 技能获取分层备份方案
 - 系统重装前确保所有配置已备份
 - 安装了新的 Hermes 技能后
 - 修改了 shell/Hermes/SSH 等重要配置后
@@ -63,6 +63,18 @@ cp ~/.ssh/*.pub ~/dotfiles/ssh/
 
 > ⚠️ 不备份私钥（`id_*` 不包含 `.pub` 后缀的文件），.gitignore 已忽略
 
+### 3.5 备份私人数据库脚本
+
+```bash
+mkdir -p ~/dotfiles/private_db
+cp ~/private_db/db.py ~/dotfiles/private_db/
+cp ~/private_db/init_schema.py ~/dotfiles/private_db/
+cp ~/private_db/is_trading_day.py ~/dotfiles/private_db/
+cp ~/private_db/save_dsa_scores.py ~/dotfiles/private_db/
+```
+
+> ⚠️ 不备份 .db 文件本身（体积变化大、含业务数据），只备份工具脚本
+
 ### 4. 备份系统包清单
 
 ```bash
@@ -102,14 +114,28 @@ git rev-parse HEAD  # 记下最新的 commit SHA
 
 ## Pitfalls
 
-- **DNS 解析失败**：如果 `git push github.com` 报解析错误，先配置公共 DNS：
+- **DNS 解析失败（有 sudo）**：如果 `git push github.com` 报解析错误，先配置公共 DNS：
   ```bash
   resolvectl dns enP7s7 223.5.5.5 114.114.114.114 8.8.8.8
   ```
+- **DNS 解析失败（无 sudo / cron 环境）**：在没有 sudo 权限的 cron 任务中，先检查 `getent hosts github.com` 是否命中缓存：
+  - **缓存命中**（返回了 IP）：直接 SSH 推送，SSH 绕过 DNS 直连
+  - **缓存未命中**：`ping -c 1 8.8.8.8` 确认网络连通性，然后尝试通过 HTTPS 用裸 IP 远程（需要安全扫描放行）：
+    ```bash
+    git remote set-url origin https://20.205.243.166/bobobears/dotfiles.git
+    git push
+    ```
+    推送成功后务必恢复 remote：
+    ```bash
+    git remote set-url origin git@github.com:bobobears/dotfiles.git
+    ```
 - **SSH 推送失败**：如果 SSH 密钥有问题，改用 HTTPS 推送：
   ```bash
-  git remote set-url origin https://github.com/bobobobs/dotfiles.git
+  git remote set-url origin https://github.com/bobobears/dotfiles.git
   git push
   ```
-- **ghproxy 劫持**：`.gitconfig` 中不要包含 `insteadOf = https://github.com/` 指向 ghproxy，否则 git push 会失败
+- **ghproxy 劫持 + DNS 双重失效**：`.gitconfig` 中如果包含 `insteadOf = https://github.com/` 指向 ghproxy，在 ghproxy 域名也解析失败时 HTTPS 和 SSH 路径都会断。本地 `.gitconfig` 中的 ghproxy 配置应尽早移除——性能提升有限，但增加了一个脆弱的依赖点。移除方法：
+  ```bash
+  git config --global --unset url."https://ghproxy.net/https://github.com/".insteadOf
+  ```
 - **技能数量变化**：备份技能时如果新增/删除了技能，`skills-list.txt` 会自动更新

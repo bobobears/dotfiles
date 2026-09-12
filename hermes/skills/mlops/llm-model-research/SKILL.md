@@ -93,6 +93,34 @@ Key patterns to look for:
 - Check release dates to understand recency
 - Verify model existence by checking multiple sources before concluding a model version doesn't exist
 
+### Step 3.5: Assess local deployment feasibility (weight size)
+
+When the user asks "how big is this model / can I run it locally", query **actual weight file sizes** from the HF tree API instead of guessing from param counts:
+
+```bash
+# Total weight size (safetensors/gguf)
+curl -s "https://hf-mirror.com/api/models/<org>/<model>/tree/main?recursive=true" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+files=[f for f in data if f.get('path','').endswith(('.safetensors','.gguf'))]
+print(f'TOTAL: {sum(f.get(\"size\",0) for f in files)/1e9:.1f} GB, files: {len(files)}')"
+
+# Architecture for param estimate (config.json is not gated)
+curl -sL "https://hf-mirror.com/<org>/<model>/resolve/main/config.json" | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+for k in ['hidden_size','num_hidden_layers','n_routed_experts','num_experts_per_tok','moe_intermediate_size','quantization_config']:
+    if k in c: print(k,'=',c[k])"
+```
+
+Key facts:
+- FP8 weights ≈ 1 byte/param — the safetensors total IS the full-precision memory requirement
+- GGUF quant repos (unsloth/bartowski) split files across per-quant directories; **aggregate by directory** to get each quant level's total (the first shard of each dir usually reports 0.0 GB)
+- Check real RAM via `free -h`; on unified-memory machines (DGX Spark/GB10) nvidia-smi shows "Not Supported" for memory — GPU shares system RAM
+- Compare: model size vs RAM. A model needs weight size + KV cache + runtime overhead; "fits in RAM" at 100% utilization is NOT deployable. Rule of thumb: weight must be ≤ ~75% of RAM for a usable setup
+- Official "DSpark"-suffixed variants may be the full model PLUS a speculative-decoding draft module (bigger, not smaller) — read the README before concluding it's an optimized small version
+- When the verdict is "too big for this machine", state the RAM gap and the smallest viable quant (from the GGUF ladder) rather than a bare "no"
+
 ### Step 4: Structure the evaluation report
 
 Structure responses with these sections:
@@ -132,6 +160,8 @@ When the official HF repo is gated (returns "Access restricted" on README):
 ## Pitfalls
 
 - **MoE memory: TOTAL params, not active params, determine GGUF file size and VRAM** — This is the #1 mistake. A "35B-A3B" model is a 35B model for memory purposes. A 120B-A12B model requires ~92GB at Q4_K_M (120B × 4.5 bits), not 12B × 4.5 bits. Always use **total** params × quantization bits for memory estimation — see `references/moe-memory-calculation.md` for the exact formula.
+- **Check ALL version numbers in a family before claiming a version doesn't exist** — searching only the exact name the user asked about (e.g. "Qwen3.8") can miss intermediate versions (Qwen3.6) and produce a wrong "family ends at X" conclusion. Pull the org's model list sorted by `createdAt` (`?author=<org>&sort=createdAt&direction=-1`) and scan every version number first.
+- **GGUF shard listing lies** — the tree API shows the first shard of each quant dir as ~0.0 GB; always aggregate per directory/quant level before comparing sizes.
 - **hf-mirror.com is for API and page access only** — model downloads need the full mirror URL
 - **Gated repos return 403** on `raw/main/README.md` — don't keep retrying, switch to alternative sources
 - **hf-mirror.com/meta-llama page doesn't show Llama 3.3** — Meta doesn't list it on the org page, use direct README URL or community repos instead
@@ -147,6 +177,7 @@ When the official HF repo is gated (returns "Access restricted" on README):
 See `references/model-card-sources.md` for known model card URL patterns.
 See `references/hf-mirror-queries.md` for common HF API query patterns.
 See `references/example-huawei-openpangu-2-0.md` for a worked example of Chinese tech media scraping for a same-day model release.
+See `references/local-deployment-feasibility.md` for the DeepSeek-V4-Flash worked example (160B MoE, FP8 159.6GB, GGUF quant ladder, DSpark speculative-decoding variant) and the machine-RAM comparison method.
 
 ## Related skills
 

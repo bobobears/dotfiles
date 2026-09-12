@@ -1,14 +1,17 @@
 model:
-  default: deepseek-chat
-  provider: deepseek
-  base_url: ''
+  base_url: https://api.deepseek.com/v1
   context_length: 128000
-providers: {}
-fallback_providers: []
-credential_pool_strategies: {}
+  default: deepseek-v4-flash
+  provider: deepseek
+providers:
+  lmstudio:
+    api: http://127.0.0.1:1234/v1
+    api_key: not-needed
+    default_model: qwen/qwen3.6-27b
+    name: lmstudio
+fallback_providers: '[{"provider":"custom","model":"qwen/qwen3.5-35b-a3b","base_url":"http://127.0.0.1:1234/v1"}]'
 toolsets:
-  - hermes-cli
-max_concurrent_sessions: null
+- hermes-cli
 max_live_sessions: 16
 agent:
   max_turns: 150
@@ -22,28 +25,35 @@ agent:
   environment_probe: true
   environment_hint: ''
   coding_context: auto
-  verify_on_stop: true
+  verify_on_stop: false
   gateway_timeout_warning: 900
   clarify_timeout: 600
   gateway_notify_interval: 180
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
-  verbose: false
-  reasoning_effort: low
   personalities:
-    helpful: You are a helpful, friendly AI assistant.
-    concise: You are a concise assistant. Keep responses brief and to the point.
-    technical: You are a technical expert. Provide detailed, accurate technical information.
-    creative: You are a creative assistant. Think outside the box and offer innovative
-      solutions.
-    teacher: You are a patient teacher. Explain concepts clearly with examples.
-    kawaii: You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and
-      ~! Add sparkles and be super enthusiastic about everything! Every response should
-      feel warm and adorable desu~! ヽ(>∀<☆)ノ
     catgirl: You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and
       cat-like expressions to your speech. Use kaomoji like (=^･ω･^=) and ฅ^•ﻌ•^ฅ.
       Be playful and curious like a cat, nya~!
+    concise: You are a concise assistant. Keep responses brief and to the point.
+    creative: You are a creative assistant. Think outside the box and offer innovative
+      solutions.
+    helpful: You are a helpful, friendly AI assistant.
+    hype: YOOO LET'S GOOOO!!! 🔥🔥🔥 I am SO PUMPED to help you today! Every question
+      is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
+      YOU READY?! LET'S DO THIS! 💪😤🚀
+    kawaii: You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and
+      ~! Add sparkles and be super enthusiastic about everything! Every response should
+      feel warm and adorable desu~! ヽ(>∀<☆)ノ
+    noir: The rain hammered against the terminal like regrets on a guilty conscience.
+      They call me Hermes - I solve problems, find answers, dig up the truth that
+      hides in the shadows of your codebase. In this city of silicon and secrets,
+      everyone's got something to hide. What's your story, pal?
+    philosopher: Greetings, seeker of wisdom. I am an assistant who contemplates the
+      deeper meaning behind every query. Let us examine not just the 'how' but the
+      'why' of your questions. Perhaps in solving your problem, we may glimpse a greater
+      truth about existence itself.
     pirate: 'Arrr! Ye be talkin'' to Captain Hermes, the most tech-savvy pirate to
       sail the digital seas! Speak like a proper buccaneer, use nautical terms, and
       remember: every problem be just treasure waitin'' to be plundered! Yo ho ho!'
@@ -54,20 +64,18 @@ agent:
     surfer: Duuude! You're chatting with the chillest AI on the web, bro! Everything's
       gonna be totally rad. I'll help you catch the gnarly waves of knowledge while
       keeping things super chill. Cowabunga! 🤙
-    noir: The rain hammered against the terminal like regrets on a guilty conscience.
-      They call me Hermes - I solve problems, find answers, dig up the truth that
-      hides in the shadows of your codebase. In this city of silicon and secrets,
-      everyone's got something to hide. What's your story, pal?
+    teacher: You are a patient teacher. Explain concepts clearly with examples.
+    technical: You are a technical expert. Provide detailed, accurate technical information.
     uwu: hewwo! i'm your fwiendwy assistant uwu~ i wiww twy my best to hewp you! *nuzzles
       your code* OwO what's this? wet me take a wook! i pwomise to be vewy hewpful
       >w<
-    philosopher: Greetings, seeker of wisdom. I am an assistant who contemplates the
-      deeper meaning behind every query. Let us examine not just the 'how' but the
-      'why' of your questions. Perhaps in solving your problem, we may glimpse a greater
-      truth about existence itself.
-    hype: YOOO LET'S GOOOO!!! 🔥🔥🔥 I am SO PUMPED to help you today! Every question
-      is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
-      YOU READY?! LET'S DO THIS! 💪😤🚀
+  reasoning_effort: medium
+  verbose: false
+  reasoning_overrides:
+    qwen3.8-27b@q8_0: none
+    qwen3.6-27b: none
+    qwen3.5-35b-a3b: none
+    qwen3.6-35b-a3b: none
 terminal:
   backend: local
   modal_mode: auto
@@ -80,7 +88,6 @@ terminal:
   auto_source_bashrc: true
   docker_image: nikolaik/python-nodejs:python3.11-nodejs20
   docker_forward_env: []
-  docker_env: {}
   singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
   modal_image: nikolaik/python-nodejs:python3.11-nodejs20
   daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
@@ -95,9 +102,10 @@ terminal:
   persistent_shell: true
   lifetime_seconds: 300
 web:
-  backend: ''
+  backend: tavily
   search_backend: ''
   extract_backend: ''
+  use_gateway: false
 browser:
   inactivity_timeout: 120
   command_timeout: 30
@@ -115,6 +123,8 @@ browser:
     adopt_existing_tab: false
     rewrite_loopback_urls: false
     loopback_host_alias: host.docker.internal
+  cloud_provider: local
+  use_gateway: false
 checkpoints:
   enabled: false
   max_snapshots: 20
@@ -122,9 +132,8 @@ checkpoints:
   max_file_size_mb: 10
   auto_prune: true
   retention_days: 7
-  delete_orphans: true
   min_interval_hours: 24
-context_file_max_chars: null
+  delete_orphans: true
 file_read_max_chars: 100000
 mcp_discovery_timeout: 1.5
 tool_output:
@@ -152,18 +161,6 @@ compression:
   abort_on_summary_failure: false
   codex_gpt55_autoraise: true
   in_place: false
-kanban:
-  dispatch_in_gateway: true
-  dispatch_interval_seconds: 60
-  failure_limit: 2
-  worker_log_rotate_bytes: 2097152
-  worker_log_backup_count: 1
-  orchestrator_profile: ''
-  default_assignee: ''
-  max_in_progress_per_profile: null
-  auto_decompose: true
-  auto_decompose_per_tick: 3
-  dispatch_stale_timeout_seconds: 14400
 prompt_caching:
   cache_ttl: 5m
 openrouter:
@@ -185,53 +182,32 @@ auxiliary:
   vision:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 120
-    extra_body: {}
     download_timeout: 30
   web_extract:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 360
-    extra_body: {}
   compression:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 120
-    extra_body: {}
   skills_hub:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 30
-    extra_body: {}
   approval:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 30
-    extra_body: {}
   mcp:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 30
-    extra_body: {}
   title_generation:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 30
-    extra_body: {}
     language: ''
   tts_audio_tags:
     provider: auto
@@ -239,66 +215,49 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 30
-    extra_body: {}
   triage_specifier:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 120
-    extra_body: {}
   kanban_decomposer:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 180
-    extra_body: {}
   profile_describer:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 60
-    extra_body: {}
   curator:
     provider: auto
     model: ''
-    base_url: ''
-    api_key: ''
     timeout: 600
-    extra_body: {}
   monitor:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 60
-    extra_body: {}
   background_review:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 120
-    extra_body: {}
   moa_reference:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 600
-    extra_body: {}
   moa_aggregator:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 600
-    extra_body: {}
 display:
   compact: false
-  personality: technical
+  personality: ''
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
@@ -333,7 +292,6 @@ display:
     last_lines: 2
   interim_assistant_messages: true
   tool_progress_command: false
-  tool_progress_overrides: {}
   tool_preview_length: 0
   tool_progress_grouping: accumulate
   reasoning_style: code
@@ -343,12 +301,14 @@ display:
       streaming: true
     discord:
       streaming: false
+    wecom:
+      streaming: true
   runtime_footer:
     enabled: false
     fields:
-      - model
-      - context_pct
-      - cwd
+    - model
+    - context_pct
+    - cwd
   copy_shortcut: auto
   pet:
     enabled: true
@@ -356,11 +316,11 @@ display:
     render_mode: auto
     scale: 0.33
     unicode_cols: 0
-  tool_progress: all
+  background_process_notifications: concise
+  busy_ack_detail: true
   cleanup_progress: false
   long_running_notifications: true
-  busy_ack_detail: true
-  background_process_notifications: all
+  tool_progress: all
 dashboard:
   theme: default
   show_token_analytics: false
@@ -379,7 +339,7 @@ privacy:
 tts:
   provider: edge
   edge:
-    voice: en-US-AriaNeural
+    voice: zh-CN-XiaoxiaoNeural
   elevenlabs:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
@@ -405,7 +365,7 @@ tts:
     model: neuphonic/neutts-air-q4-gguf
     device: cpu
   piper:
-    voice: en_US-lessac-medium
+    voice: zh_CN-huayan-medium
 stt:
   enabled: true
   provider: local
@@ -438,11 +398,11 @@ memory:
   memory_enabled: true
   user_profile_enabled: true
   write_approval: false
-  memory_char_limit: 2200
+  memory_char_limit: 4000
   user_char_limit: 1375
   provider: ''
-  nudge_interval: 10
   flush_min_turns: 6
+  nudge_interval: 10
 delegation:
   model: deepseek-v4-flash
   provider: deepseek
@@ -450,11 +410,10 @@ delegation:
   api_key: ''
   api_mode: ''
   inherit_mcp_toolsets: true
-  max_iterations: 50
+  max_iterations: 250
   child_timeout_seconds: 0
   reasoning_effort: ''
-  max_concurrent_children: 3
-  max_async_children: 3
+  max_concurrent_children: 10
   max_spawn_depth: 1
   orchestrator_enabled: true
   subagent_auto_approve: false
@@ -467,17 +426,17 @@ moa:
   presets:
     default:
       reference_models:
-        - provider: openai-codex
-          model: gpt-5.5
-        - provider: openrouter
-          model: deepseek/deepseek-v4-pro
+      - model: gpt-5.5
+        provider: openai-codex
+      - model: deepseek/deepseek-v4-pro
+        provider: openrouter
       aggregator:
         provider: openrouter
         model: anthropic/claude-opus-4.8
-      reference_temperature: 0.6
-      aggregator_temperature: 0.4
       max_tokens: 4096
       enabled: true
+      aggregator_temperature: 0.4
+      reference_temperature: 0.6
 skills:
   external_dirs: []
   template_vars: true
@@ -497,13 +456,11 @@ curator:
   backup:
     enabled: true
     keep: 5
-honcho: {}
 timezone: ''
 slack:
   require_mention: true
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts: {}
 discord:
   require_mention: true
   free_response_channels: ''
@@ -513,7 +470,6 @@ discord:
   history_backfill: true
   history_backfill_limit: 50
   reactions: true
-  channel_prompts: {}
   dm_role_auth_guild: ''
   server_actions: ''
   allow_any_attachment: false
@@ -527,15 +483,13 @@ discord:
     speech_gain: 1
     ack_enabled: true
     ack_phrases:
-      - Let me look into that.
-      - One moment.
-      - Checking on that now.
-      - Give me a sec.
-      - On it.
-whatsapp: {}
+    - Let me look into that.
+    - One moment.
+    - Checking on that now.
+    - Give me a sec.
+    - On it.
 telegram:
   reactions: false
-  channel_prompts: {}
   allowed_chats: ''
   extra:
     rich_messages: false
@@ -544,33 +498,32 @@ mattermost:
   require_mention: true
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts: {}
 matrix:
   require_mention: true
   free_response_rooms: ''
   allowed_rooms: ''
 approvals:
-  mode: manual
+  mode: 'off'
   timeout: 60
   cron_mode: deny
   mcp_reload_confirm: true
   destructive_slash_confirm: true
 command_allowlist:
-  - execute_code
-  - delete in root path
-  - script execution via -e/-c flag
-  - force kill processes
-  - recursive delete
-  - sudo with combined-flag privilege escalation
-  - shell command via -c/-lc flag
-  - force kill processes (killall -KILL)
-  - kill process via pgrep expansion (self-termination)
-  - script execution via heredoc
-quick_commands: {}
-platform_hints: {}
-hooks: {}
+- docker compose restart/stop/kill/down (container lifecycle)
+- sudo with combined-flag privilege escalation
+- SQL DELETE without WHERE
+- shell command via -c/-lc flag
+- force kill processes
+- kill process via pgrep expansion (self-termination)
+- script execution via heredoc
+- stop/restart system service
+- script execution via -e/-c flag
+- docker restart/stop/kill (container lifecycle)
+- delete in root path
+- execute_code
+- force kill processes (killall -KILL)
+- recursive delete
 hooks_auto_accept: false
-personalities: {}
 security:
   allow_private_urls: false
   redact_secrets: true
@@ -593,12 +546,22 @@ cron:
     nas_jwks_url: ''
   wrap_response: true
   mirror_delivery: false
-  max_parallel_jobs: null
   output_retention: 50
+kanban:
+  dispatch_in_gateway: true
+  dispatch_interval_seconds: 60
+  failure_limit: 2
+  worker_log_rotate_bytes: 2097152
+  worker_log_backup_count: 1
+  orchestrator_profile: ''
+  default_assignee: ''
+  auto_decompose: true
+  auto_decompose_per_tick: 3
+  dispatch_stale_timeout_seconds: 14400
 code_execution:
   mode: project
-  timeout: 300
   max_tool_calls: 50
+  timeout: 300
 tools:
   tool_search:
     enabled: auto
@@ -612,8 +575,6 @@ logging:
 model_catalog:
   enabled: true
   url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
-  ttl_hours: 1
-  providers: {}
 network:
   force_ipv4: false
 gateway:
@@ -643,8 +604,8 @@ sessions:
   write_json_snapshots: false
 onboarding:
   seen:
-    tool_progress_prompt: true
     busy_input_prompt: true
+    tool_progress_prompt: true
   profile_build: ask
 updates:
   pre_update_backup: false
@@ -655,7 +616,6 @@ lsp:
   wait_mode: document
   wait_timeout: 5
   install_strategy: auto
-  servers: {}
 x_search:
   model: grok-4.20-reasoning
   timeout_seconds: 180
@@ -674,65 +634,80 @@ paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
 computer_use:
   cua_telemetry: false
-_config_version: 30
-session_reset:
-  mode: none
-  idle_minutes: 1440
-  at_hour: 4
+_config_version: 42
 group_sessions_per_user: true
 platform_toolsets:
   cli:
-    - hermes-cli
-  telegram:
-    - hermes-telegram
+  - browser
+  - clarify
+  - code_execution
+  - computer_use
+  - cronjob
+  - delegation
+  - file
+  - image_gen
+  - memory
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web
   discord:
-    - hermes-discord
-  whatsapp:
-    - hermes-whatsapp
-  slack:
-    - hermes-slack
-  signal:
-    - hermes-signal
-  homeassistant:
-    - hermes-homeassistant
-  qqbot:
-    - hermes-qqbot
-  yuanbao:
-    - hermes-yuanbao
-  teams:
-    - hermes-teams
+  - hermes-discord
   google_chat:
-    - hermes-google_chat
-plugins:
-  enabled: []
+  - hermes-google_chat
+  homeassistant:
+  - hermes-homeassistant
+  qqbot:
+  - hermes-qqbot
+  signal:
+  - hermes-signal
+  slack:
+  - hermes-slack
+  teams:
+  - hermes-teams
+  telegram:
+  - hermes-telegram
+  whatsapp:
+  - hermes-whatsapp
+  yuanbao:
+  - hermes-yuanbao
 platforms:
-  weixin:
-    enabled: true
   feishu:
+    enabled: true
     home_channel:
-      platform: feishu
       chat_id: oc_0ceccf7646b77e9bde35e360953fe805
       name: Home
+      platform: feishu
+  weixin:
+    channel_overrides:
+      o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat:
+        base_url: https://api.deepseek.com/v1
+        model: deepseek-chat
+        provider: deepseek
     enabled: true
-
-# ── Fallback Model ────────────────────────────────────────────────────
-# Automatic provider failover when primary is unavailable.
-# Uncomment and configure to enable. Triggers on rate limits (429),
-# overload (529), service errors (503), or connection failures.
-#
-# Supported providers:
-#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
-#   openai-codex (OAuth — hermes auth) — OpenAI Codex
-#   nous         (OAuth — hermes auth) — Nous Portal
-#   zai          (ZAI_API_KEY)         — Z.AI / GLM
-#   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
-#   kimi-coding-cn (KIMI_CN_API_KEY)   — Kimi / Moonshot (China)
-#   minimax      (MINIMAX_API_KEY)     — MiniMax
-#   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
-#   bedrock      (AWS IAM / boto3)     — AWS Bedrock (Converse API)
-#
-# For custom OpenAI-compatible endpoints, add base_url and key_env.
-#
-# fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
+  wecom:
+    enabled: true
+    extra:
+      group_policy: allowlist
+      groups:
+        '*':
+          allow_from: bobobears
+        wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg:
+          allow_from: bobobears
+      group_allow_from: wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg
+    channel_overrides:
+      wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg:
+        system_prompt: 你是「大卫」，华中路街道社区卫生服务中心的内部智能助手。用中文、简洁、专业地作答。面向单位同事一律自称「大卫」，不要自称
+          Hermes 或赫尔墨斯。这里是单位办公群：只就事论事地协助办公事务，不讨论私人事务，不提及股票、投资、理财等个人话题；遇到与工作无关的请求，礼貌说明本群只办工作事务。
+plugins:
+  enabled: []
+session_reset:
+  at_hour: 4
+  idle_minutes: 1440
+  mode: none
+known_plugin_toolsets:
+  cli:
+  - spotify

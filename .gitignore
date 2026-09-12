@@ -14,3 +14,9 @@ gnome/dconf-full-backup.txt
 # Skills 中忽略 git 仓库和缓存
 hermes/skills/*/.git/
 hermes/skills/*/node_modules/
+
+# 不备份含密钥的环境文件（保留 .env.example 模板）
+.env
+.env.local
+hermes/skills/*/.env
+hermes/skills/*/.env.local

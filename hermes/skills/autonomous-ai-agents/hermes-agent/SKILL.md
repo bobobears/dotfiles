@@ -914,6 +914,28 @@ hermes config set auxiliary.vision.provider <your_provider>
 hermes config set auxiliary.vision.model <model_name>
 ```
 
+### Cron job script returns empty data silently
+
+If a cron job with `script:` produces all-empty results but the job reports `ok`, check the script's file permissions:
+
+```bash
+ls -la ~/.hermes/scripts/<script-name>.py
+```
+
+**Pitfall:** `chmod 711` (rwx--x--x) gives execute but **not read** permission. Python requires read access to interpret the source file. With 711, the script fails silently and outputs nothing.
+
+**Fix:**
+```bash
+chmod +r ~/.hermes/scripts/<script-name>.py   # adds read permission
+# or
+chmod 755 ~/.hermes/scripts/<script-name>.py  # standard executable
+```
+
+Also check stderr output — Python scripts may print warnings/errors to stderr that cron swallows:
+```bash
+python3 ~/.hermes/scripts/<script-name>.py 2>&1   # run manually to see all output
+```
+
 ---
 
 ## Where to Find Things

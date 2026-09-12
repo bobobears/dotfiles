@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hermes
+GenericName=Hermes Desktop
+Comment=Launch Hermes Desktop
+Exec=/home/bobobears/.local/bin/hermes desktop
+Icon=hermes
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+StartupWMClass=Hermes

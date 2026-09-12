@@ -149,3 +149,156 @@ On the Windows host, the user needs to:
 - On Windows, guest account is disabled by default → `NT_STATUS_ACCOUNT_DISABLED` is normal; use actual Windows login credentials.
 - `NT_STATUS_ACCESS_DENIED` with anonymous login means credentials are required; try `-U <username>%` or `-U <username>%<password>`.
 - ThinClient/FreeRDP mounts (under `~/thinclient_drives/`) provide file access without SMB at all — check `gio mount -l` for these before attempting SMB on the remote host.
+
+---
+
+## DNS Troubleshooting (systemd-resolved)
+
+### Symptom: all domain lookups fail, but IP connectivity is fine
+
+```
+nslookup google.com        # REFUSED
+ping 8.8.8.8               # OK (network itself is up)
+```
+
+This means systemd-resolved is running but the upstream DNS server (often a router at 192.168.x.1) is refusing queries.
+
+### Quick diagnosis
+
+```bash
+resolvectl status                     # check which DNS servers are configured
+nslookup github.com 8.8.8.8           # test against Google DNS directly
+```
+
+If `nslookup` against 8.8.8.8 works but default resolver returns `REFUSED`, the upstream DNS is broken.
+
+### Fix: override DNS per interface
+
+```bash
+# Find the active interface name
+ip addr show | grep "state UP"
+
+# Set Google DNS on the active interface (e.g., enP7s7)
+resolvectl dns enP7s7 8.8.8.8 8.8.4.4
+
+# Verify
+resolvectl status
+nslookup github.com
+```
+
+### Make it persistent
+
+The `resolvectl dns` command is per-session. To persist across reboots:
+
+```bash
+# Option A: via NetworkManager (if using nmcli)
+sudo nmcli con mod "<connection-name>" ipv4.dns "8.8.8.8,8.8.4.4"
+
+# Option B: via resolved.conf (global fallback)
+sudo bash -c 'cat >> /etc/systemd/resolved.conf' << 'EOF'
+[Resolve]
+DNS=8.8.8.8 8.8.4.4
+FallbackDNS=1.1.1.1
+EOF
+sudo systemctl restart systemd-resolved
+```
+
+### Common root causes
+
+- **Router DNS service crashed or overloaded** — common on consumer routers under heavy load
+- **ISP DNS outage** — upstream provider DNS temporarily unavailable
+- **NetworkManager DHCP renewal** reset DNS to a broken gateway
+- **systemd-resolved stub listener** at 127.0.0.53 is fine — the problem is always the upstream server it forwards to
+
+---
+
+## Router Port Forwarding Troubleshooting
+
+When a user reports that **external access to a port-forwarded service stopped working** (e.g., "端口转发不行了"), follow this diagnostic flow. Common scenario: a Linux machine behind a consumer router (Xiaomi, TP-Link, etc.) with a port forwarding rule that used to work.
+
+### Diagnostic flow (run in order)
+
+**Step 1 — Verify the service is running and listening**
+
+```bash
+ss -tlnp | grep <port>
+# Expected: LISTEN on 0.0.0.0:<port> (not just 127.0.0.1)
+```
+
+⚠️ If the service binds to `127.0.0.1` only, the router can't reach it. The service must bind to `0.0.0.0` or the LAN IP.
+
+**Step 2 — Verify LAN access works**
+
+Ask the user to access `http://<LAN_IP>:<port>` from a device on the same LAN. If this works, the service and LAN routing are fine — the problem is at the router/ISP layer.
+
+**Step 3 — Check the target machine's firewall**
+
+```bash
+sudo ufw status verbose          # UFW
+sudo iptables -L INPUT -n        # iptables (look for DROP/REJECT rules)
+```
+
+⚠️ UFW "不活动" and empty iptables INPUT chain means no local firewall is blocking — proceed to router checks.
+
+**Step 4 — Test from the server itself to its own public IP (关键诊断步骤)**
+
+This isolates whether the problem is the router or something beyond.
+
+```bash
+# Get current public IP
+curl -s --max-time 5 ifconfig.me
+
+# Test if external port is reachable FROM the server
+curl -s --max-time 10 -o /dev/null -w "HTTP: %{http_code}\n" http://<public_ip>:<external_port>/
+# Or TCP-level test:
+timeout 5 bash -c 'echo >/dev/tcp/<public_ip>/<external_port>' && echo "OPEN" || echo "CLOSED"
+```
+
+**Result interpretation:**
+
+| Result | Meaning | Next step |
+|--------|---------|-----------|
+| `OPEN` / HTTP 200 | Router forwarding works, ISP is routing | Problem is on the client side (their firewall, their ISP) |
+| `CLOSED` / timeout | Router is NOT forwarding the port | Continue to Step 5 |
+
+**Step 5 — Diagnose router-level causes**
+
+When Step 4 returns `CLOSED`, the issue is one of these:
+
+| Cause | How to check | Fix |
+|-------|-------------|-----|
+| **Router rule needs re-save** | Xiaomi/TP-Link routers sometimes lose NAT state after reboot even if the rule UI still shows it | Edit and re-save the rule, or delete and recreate it |
+| **CGNAT (运营商级 NAT)** | WAN口 IP 是 `10.x.x.x`、`100.x.x.x`、`172.16.x.x` 或 `192.168.x.x` | 联系运营商申请公网 IP，或使用内网穿透（frp/ngrok） |
+| **Dynamic IP changed** | 当前公网 IP ≠ 之前记录的 IP | 更新 DNS 记录或使用 DDNS |
+| **ISP blocking port** | Port 80/443 work but others don't | Try a different port (e.g., 8888, 443), or contact ISP |
+| **Router firmware reset** | Rule disappeared after firmware update | Re-create the rule |
+
+### CGNAT detection (common in China)
+
+Many Chinese ISPs (especially China Mobile) assign CGNAT addresses by default. The WAN IP shown in the router is a private address, making port forwarding impossible.
+
+```bash
+# Check if public IP is in a private range
+python3 -c "
+ip = 'CURRENT_PUBLIC_IP'
+private_prefixes = ('10.', '100.', '172.16.', '192.168.')
+if any(ip.startswith(p) for p in private_prefixes):
+    print('⚠️ CGNAT detected — 端口转发无效，需要申请公网IP或使用内网穿透')
+else:
+    print('✅ 公网IP，端口转发应该有效')
+"
+```
+
+**Workaround for CGNAT:**
+- **Outbound-only tunnel** (Cloudflare Tunnel / Tailscale Funnel): the machine dials out, so there is no inbound port and no forwarding rule to configure — it works through any number of NAT layers. Default choice on a home/office line behind CGNAT; full procedure and mechanism comparison in `references/public-https-tunnels.md`.
+- **frp** (内网穿透): Deploy a frp client on the LAN machine, connect to an external VPS with a public IP
+- **Contact ISP**: Some ISPs (China Telecom, China Unicom) provide public IP on request
+
+⚠️ **A tunnel hostname is only useful long-term if it is STABLE.** A Cloudflare *Quick* Tunnel (`random-words.trycloudflare.com`) changes on every restart: fine for a smoke test, but it silently breaks any callback/webhook URL registered against it. Anything pasted into a third-party console needs a named tunnel on a domain you control, or Tailscale Funnel's fixed `*.ts.net` hostname. First check whether a public URL is needed at all — pure outbound integrations (pushing messages with an app's own API credentials) need none. See `references/public-https-tunnels.md`.
+
+### Xiaomi router (小强) specific notes
+
+- Router admin: `192.168.31.1` (default subnet `192.168.31.0/24`)
+- Port forwarding rules are under **高级设置 → 端口转发**
+- After reboot, rules may appear in the UI but need to be **edited and re-saved** to re-apply the NAT rules internally
+- Xiaomi routers do NOT support UPnP by default — port forwarding must be manual

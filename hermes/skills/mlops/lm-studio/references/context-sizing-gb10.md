@@ -121,6 +121,46 @@ free -h
 | Minimal stability | 16,384 | Same as "old defaults" ×2 |
 | Legacy / troubleshooting | 8,192 | Match pre-update behavior exactly |
 
+## Qwythos-9B-Claude-Mythos-5-1M (BF16)
+
+Installed at `~/.lmstudio/models/empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF/`. **Only BF16 quantization available** — no Q4/Q8 variants. MTP (Multi-Token Prediction) architecture, 18GB on disk, ~20GB runtime weights.
+
+| Parameter | Value (estimated from GGUF) |
+|-----------|--------------------------|
+| layers | 48 |
+| KV heads | 8 |
+| KV head dim | 128 |
+| KV per token | 48 × 8 × 128 × 4 = **196,608 bytes ≈ 192 KB** |
+
+| Context | KV Cache (uncapped) | Capped by 8GB prompt cache |
+|---------|--------------------|---------------------------|
+| 8,192 | 1.6 GB | 1.6 GB |
+| 32,768 | 6.3 GB | 6.3 GB |
+| 65,536 | 12.6 GB | 8 GB |
+| 128,000 | 24.6 GB | 8 GB |
+
+### Dual-Model: Qwen3.6-27B (Q8_0) + Qwythos-9B (BF16)
+
+| Component | Qwen3.6-27B | Qwythos-9B |
+|-----------|-------------|------------|
+| Weights | 27 GB | 18 GB |
+| KV cache (8K ctx) | 2.1 GB | 1.6 GB |
+| KV cache (32K ctx) | 8 GB (capped) | 6.3 GB |
+| KV cache (128K ctx) | 8 GB (capped) | 8 GB (capped) |
+| Overhead/buffers | ~9 GB | ~4 GB |
+| **Subtotal** | **~44 GB** | **~26 GB** |
+
+| Context | Combined Memory | Headroom (121GiB) | Verdict |
+|---------|----------------|-------------------|---------|
+| 8,192 | ~73 GB | ~48 GB | ✅ Safe |
+| 32,768 | ~85 GB | ~36 GB | ✅ Safe |
+| 65,536 | ~91 GB | ~30 GB | ⚠️ Tight but OK |
+| **128,000+** | **~97 GB** | **~24 GB** | ❌ **Danger — swap risk** |
+
+**Previous crash root cause** (nemotron super + qwen3.6-27b): KV cache explosion from long context, NOT model weights. The weights fit; the KV cache at high context length pushed total memory past 121GiB, triggering OOM.
+
+**Rule of thumb**: On GB10 with dual models, keep context ≤ 32K for safety. 64K is acceptable if no other memory-heavy apps run. 128K+ is a crash risk regardless of which models you pair.
+
 ## Diagnostic Workflow Summary
 
 1. Check server logs for n_ctx defaults: `grep "n_ctx=" ~/.lmstudio/server-logs/*/*.log`

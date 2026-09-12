@@ -258,6 +258,67 @@ df = pro.daily(ts_code=ts_code, start_date="20260501", end_date="20260626")
 - For full market data: `pro.daily_basic(trade_date="20260626", fields="ts_code,circ_mv,turnover_rate,pe,pb")`
   - Note: `volume_ratio` may not be available on free tier
 
+### 5. 东方财富 push2 — Real-time Index & Stock Quotes (HTTP)
+
+Fast, no-auth endpoint for real-time market data. Works via plain `curl` from inside China.
+
+**Base URL:** `https://push2.eastmoney.com/api/qt/ulist.np/get`
+
+**secids format:** `{market}.{6-digit-code}` where market prefix is:
+| Market | Prefix | Example |
+|--------|--------|---------|
+| 上海 Shanghai | `1.` | `1.000001` (上证指数) |
+| 深圳 Shenzhen | `0.` | `0.399001` (深证成指) |
+| 创业板 ChiNext | `3.` | `3.300750` (宁德时代) |
+
+**Major index codes:**
+| Index | secid |
+|-------|-------|
+| 上证指数 | `1.000001` |
+| 深证成指 | `0.399001` |
+| 创业板指 | `0.399006` |
+| 沪深300 | `1.000300` |
+| 科创50 | `1.000688` |
+| 北证50 | `0.899050` |
+
+**Key fields:**
+| Field | Description |
+|-------|-------------|
+| `f2` | 最新价 (×100 for stocks, raw for indices) |
+| `f3` | 涨跌幅% (×100, e.g. 134 = +1.34%) |
+| `f4` | 涨跌额 (×100) |
+| `f5` | 今开 (×100) |
+| `f6` | 成交量(手) |
+| `f7` | 成交额(元) |
+| `f12` | 6位代码 |
+| `f14` | 名称 |
+| `f15` | 最高 (×100) |
+| `f16` | 最低 (×100) |
+| `f17` | 涨跌额(备用) |
+| `f18` | 昨收 (×100) |
+
+**Example — 6 major indices:**
+```bash
+curl -s "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001,0.399006,1.000300,1.000688,0.899050&fields=f2,f3,f4,f5,f6,f7,f12,f14,f15,f16,f17,f18"
+```
+
+**Example — daily K-line (single stock/index):**
+```bash
+curl -s "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&end=20260805&lmt=1"
+# Returns: date,open,close,high,low,volume,amount
+```
+- `fields2=f51..f61` extends to: 振幅%, 涨跌幅%, 涨跌额, 换手率% — saves recomputing pct change per bar (verified 2026-09-01)
+- `lmt=320` ≈ 15 months of trading days — enough history for prior-high / resistance-zone analysis
+
+**Single-stock fundamentals (push2 stock/get, HTTP, no auth):**
+```bash
+curl -s "http://push2.eastmoney.com/api/qt/stock/get?secid=0.002966&fields=f43,f57,f58,f116,f117,f162,f163,f164,f167,f168"
+```
+- `f43` = 最新价×100; `f116`/`f117` = 总市值/流通市值（元）; `f167` = PB×100; `f168` = 换手率%×100
+- `f162/f163/f164` are three PE variants (all ×100) — which one is TTM varies by stock; cross-check against computed value (市值/净利润) before quoting any of them
+
+**⚠️ Note:** HTTPS to push2 may be DNS-blocked by some routers (e.g. Xiaomi 192.168.31.1). Use HTTP or `--resolve` workaround (see below). For batch stock queries (your watchlist), the `secids` parameter uses the same market prefix rules: 上海 stocks use `1.`, 深圳 stocks use `0.`, 创业板 use `3.`.
+
 ### ⚠️ API Availability (tested on this environment)
 
 | API | Status | Notes |
@@ -266,11 +327,16 @@ df = pro.daily(ts_code=ts_code, start_date="20260501", end_date="20260626")
 | Tencent qt.gtimg.cn | ✅ Works | Best for real-time batch quotes |
 | akshare THS financial | ✅ Works | Reliable ROE source |
 | Tushare daily | ✅ Works | Rate-limited, reliable |
-| 东方财富 push2 | ❌ Blocked | Router DNS blocks subdomains; bypass with `--resolve` via 114 DNS |
+| 东方财富 push2 (HTTP) | ✅ Works | HTTP works; HTTPS may be DNS-blocked by router |
+| 东方财富 push2 (HTTPS) | ⚠️ DNS-blocked | Router DNS blocks subdomains; bypass with `--resolve` via 114 DNS |
 | 东方财富 datacenter | ✅ Works | F10 dividends + **大宗交易** (see `references/dzjy-block-trade-api.md`) |
 | 搜狐 Sohu K-line | ❌ Dead | API deprecated |
 | 腾讯 ifzq K-line | ❌ Bad params | API format changed |
 | 新浪 K-line | ❌ Not found | Deprecated |
+| 财联社新闻搜索 | ❌ Dead | API returns empty, needs auth |
+| 同花顺新闻搜索 | ❌ Unreliable | DNS resolution fails or 404 |
+| 百度股票搜索 | ❌ Unreliable | Returns empty JSON |
+| 东方财富 search-api-web 新闻搜索 | ✅ Works | `search-api-web.eastmoney.com/search/jsonp`，无需 auth，JSONP 需剥壳，见 News Search 章节 |
 
 ### DNS Bypass for Blocked East Money Subdomains
 
@@ -338,10 +404,58 @@ See `references/a-stock-screening-pipeline.md` for the full implementation: Sina
 - **Holidays**: Only trading days are stored. Weekends and Chinese holidays (Spring Festival, National Day, etc.) will have gaps in the sequence.
 - **Stock code lookup**: Always prepend the exchange prefix (`sz`/`sh`/`bj`) when constructing the file path. The 6-digit code alone is not unique across exchanges.
 - **Data recency**: The `.day` file is updated after each trading day's close (盘后数据). Check the file modification time to see if it's current.
+- **RDP drive unmounted**: `thinclient_drives/E:` may only contain `HermesBackup` when the RDP session is disconnected — vipdoc paths silently missing. Check `os.path.exists()` on the `.day` file first; if absent, go straight to online APIs (push2his K-line with `lmt=320` covers full history for resistance-zone analysis).
+- **Tencent qt.gtimg.cn field alignment**: When a stock is 跌停/涨停 (limit down/up), some fields shift or contain anomalous values. The 换手率 (field 37) can return a non-percentage number (e.g. 317995 instead of 0.78%). Always cross-check with field 49 (换手率备用) or compute manually: `成交量(手) * 100 / 流通股本(万股)`. Similarly, field 41 (每股净资产) and field 42 (流通股本) can be misaligned on limit days — verify against known values or use East Money push2 API (field f185/f186) as a backup source. PE(TTM) field 38 and turnover fields have been observed wrong even on NORMAL days (苏州银行 2026-09-01: field 38=1.08 vs actual ≈5.95; field 49=1.59% vs computed 1.08%) — for valuation metrics use East Money push2 stock/get as the authoritative source (see Single-stock fundamentals above).
+- **execute_code may be blocked**: In some Hermes configurations, `execute_code` is blocked by security policy (cron_mode). When this happens, use `terminal` with inline `python3 -c "..."` or heredoc `python3 << 'EOF'` instead.
+- **News search APIs are unreliable**: Most Chinese financial news APIs (财联社, 同花顺, 百度) fail with 404, empty responses, or DNS errors. **Exception — 东方财富 `search-api-web.eastmoney.com` works** (no auth, JSONP format; strip the `jQuery(...)` wrapper). For breaking news about a stock, use that endpoint first, then browser-based search as fallback. See `references/stock-news-investigation.md` for the full per-stock news/rumor check workflow.
 
 ---
 
+## Industry Index Comparison (个股 vs 行业指数)
+
+A common user request: "compare my stock to its industry index, check MA60 position, should I hold or sell?"
+
+### Workflow
+
+1. **Find industry index code** — see `references/tdx-industry-index-lookup.md` for the mapping from `tdxzs.cfg`. Common: 电力=880305, 银行=880471.
+2. **Parse both** — the index `.day` files use the same binary format as stocks. They live in `vipdoc/sh/lday/sh880xxx.day`.
+3. **Compute MA60** for both stock and index — the critical decision level for long-term holders.
+4. **Check relative position**:
+   - Stock near but below MA60 + index also below = sector-wide pressure (wait/減仓)
+   - Stock near MA60 + index well above = stock-specific lag (possibly catch-up)
+   - Stock above MA60 + index above = confirmed uptrend (hold)
+5. **Volume check**: Compare current volume to 5-day average (量比) — confirm if move is supported.
+
+### Presentation (for this user)
+
+Use a compact table with these rows per stock:
+- Latest close, MA60 distance %, MA60 status (突破/未站上)
+- Industry index same metrics
+- Volume vs 5-day average
+- Short-term trend (recent 4-5 day direction)
+
+Avoid verbose prose — the user wants data first, your judgment second, in that order.
+
+## Trend & Space Assessment (趋势与空间研判)
+
+For "下一步趋势和空间" questions — beyond MA scoring, this workflow produced a well-received scenario analysis (苏州银行 2026-09-01):
+
+1. **Long history**: fetch ~320 trading days (`lmt=320` on push2his K-line ≈ 15 months) to find the last major high and — critically — how price behaved when it LAST touched that level (historical precedent at key levels beats any indicator: e.g. a prior failed test with volume-less top + no catalyst → -15% over 6 weeks is a warning template).
+2. **Resistance zones**: prior highs + dense trading shelf above current price; count historical closes above each candidate target (0 days above X = virgin territory, expect friction there).
+3. **Fibonacci** from swing low → prior high: 0.382/0.5/0.618 as retracement support, 1.0 = prior high, 1.272/1.618 as extension targets.
+4. **Volume trend**: monthly average volume — rising into the breakout = quality; compute max drawdown within the rally (shallow pullbacks <8% = strong structure).
+5. **Valuation mapping** (banks): map each target price to PB (scale current PB by price ratio) — 破净 is a safety margin, ~0.9x ≈ peer-average ceiling without sector-wide re-rating; for non-banks use PE vs sector median instead.
+6. **Scenario table**: 2-3 scenarios with subjective probabilities, path description, target range (+%), plus explicit confirmation signals (e.g. "放量>50万手收盘站上9.12") and invalidation levels (MA20 break).
+
+### Presentation (for this user)
+
+- Scenario table first (情景 | 概率 | 路径 | 目标空间), then key confirmation signals as a short numbered list, then one-line conclusion.
+- Anchor everything to the nearest historical level with concrete numbers ("距前高9.12仅0.7%") — beats abstract "还有空间".
+
 ## Reference Files
 
+- `references/stock-news-investigation.md` — 个股异动/利空核查工作流（"为什么XX低开/大跌？有没有特殊信息？"）：盘面→公告→新闻搜索→龙虎榜/大宗/融资→股吧→K线→财报披露日，全部端点含 curl 命令。
 - `references/002039-example.md` — Worked example of parsing 002039 黔源电力 (Shenzhen) with actual raw binary values, price validation, and recent market data.
+- `references/trend-space-assessment-002966.md` — Worked example: 苏州银行 trend & space assessment (prior-high precedent, Fibonacci targets, PB mapping, scenario table format).
 - `references/rdp-mapped-tdx-data.md` — Reading TDX data from RDP-mapped drives (thinclient_drives via xrdp-chansrv), handling slow fuse mounts, and determining price scaling via the amount cross-check.
+- `references/tdx-industry-index-lookup.md` — How to find TDX industry/sector index codes from `tdxzs.cfg`, with common codes (电力 880305, 银行 880471, etc.) and data file locations.

@@ -97,6 +97,46 @@ def is_safe_url(url):
     return False
 
 
+# ── Precision filters ──
+# Suppress matches whose *shape* proves the finding is not a real risk.
+# These never broaden a rule and never hide a genuine risk: each filter
+# requires positive evidence that the flagged construct cannot do harm.
+_ENV_SOURCED_RE = re.compile(r'=\s*["\']?\s*(\$\(|\$\{|\$[A-Za-z_]|os\.environ|os\.getenv|getenv\()')
+_STREAM_WRITE_RE = re.compile(
+    r'(stdout|stderr|wfile|socket|buffer|req|res|response)\s*\.\s*write\s*\(')
+
+
+def _is_false_positive(title, line, content):
+    """Return True only when the match is provably benign.
+
+    Filter 1 — "Hardcoded credential" whose value is interpolated from the
+    environment (`API_KEY="${FOO_API_KEY:-}"`) is by definition NOT hardcoded.
+    Filter 2 — `X.write(...)` where X is a stream or socket is not a file write.
+    Filter 3 — `rm -rf -- "$tmp"` is safe when the same file creates that
+    variable with mktemp -d and never reassigns it to anything else.
+    """
+    if title == "Hardcoded credential" and _ENV_SOURCED_RE.search(line):
+        return True
+
+    if title == "Write operation" and _STREAM_WRITE_RE.search(line):
+        return True
+
+    if title == "Force recursive delete":
+        m = re.search(r'rm\s+-rf\s+--?\s*"?\$\{?(\w+)\}?"?', line)
+        if m and 'mktemp' in content:
+            var = re.escape(m.group(1))
+            # Every assignment of this variable must itself BE a mktemp call.
+            # Stop each value at the first statement separator so a later
+            # unrelated `; x=$(mktemp -d)` on the same line cannot launder it.
+            assigns = re.findall(
+                rf'^\s*(?:local\s+|export\s+|declare\s+)?{var}\s*=\s*(.+)$', content, re.M)
+            vals = [re.split(r'[;&|]', a, 1)[0].strip() for a in assigns]
+            if vals and all(re.match(r'^\$\(mktemp\b|^`mktemp\b', v) for v in vals):
+                return True
+
+    return False
+
+
 def scan_file_for_patterns(filepath, patterns, context=""):
     """Scan a file for security patterns and return findings."""
     findings = []
@@ -148,6 +188,10 @@ def scan_file_for_patterns(filepath, patterns, context=""):
                     if '"shell=True"' in line or "'shell=True'" in line:
                         continue
 
+                # ── Precision filters: skip provably benign matches ──
+                if _is_false_positive(title, line, content):
+                    continue
+
                 findings.append({
                     "severity": "HIGH" if pattern in [p[0] for p in HIGH_PATTERNS] else
                                 ("MEDIUM" if any(p[0] == pattern for p in MEDIUM_PATTERNS) else "LOW"),
@@ -188,21 +232,38 @@ def check_skillyml_security(filepath):
             })
 
     # Check 2: Look for sensitive info in docs
+    # Precision filters (keep real detection, kill prose false positives):
+    # a real secret value contains no whitespace and is not an obvious placeholder.
+    # Without them, prose like "the secret in plaintext" or "App Secret manually"
+    # matches the regex and floods every doc-touching skill with false HIGHs.
     for i, line in enumerate(lines, 1):
         m = re.search(r'(?i)(password|api[_-]?key|secret|credential)[:\s=]+["\']?([^"\'>\n]{8,})', line)
         if m and not line.strip().startswith("#"):
-            findings.append({
-                "severity": "HIGH",
-                "title": "Potential credential in documentation",
-                "detail": f"Line {i}: discloses what appears to be a credential",
-                "recommendation": "Remove hardcoded credentials from documentation",
-                "file": str(filepath),
-                "line": i,
-            })
+            value = m.group(2).strip()
+            is_placeholder = (
+                value.startswith(("<", "{{", "$", "...", "YOUR_", "your_"))
+                or bool(re.fullmatch(r'[xX*<>\-_.\[\]]{4,}', value))
+            )
+            if not re.search(r"\s", value) and not is_placeholder:
+                findings.append({
+                    "severity": "HIGH",
+                    "title": "Potential credential in documentation",
+                    "detail": f"Line {i}: discloses what appears to be a credential",
+                    "recommendation": "Remove hardcoded credentials from documentation",
+                    "file": str(filepath),
+                    "line": i,
+                })
 
     # Check 3: Check for destructive instructions
+    # Precision: `rm -rf /` and `rm -rf /*` destroy the filesystem root, which
+    # is what this rule exists to catch. A scoped path such as
+    # `rm -rf /tmp/staging` is ordinary cleanup, not root destruction.
+    # `chmod -R 777` has no such ambiguity and keeps matching.
     for i, line in enumerate(lines, 1):
-        if re.search(r'(?i)(rm\s+-rf\s+/|chmod\s+-R\s+777)', line) and not line.strip().startswith("#"):
+        if line.strip().startswith("#"):
+            continue
+        if re.search(r'(?i)chmod\s+-R\s+777', line) or re.search(
+                r'(?i)rm\s+(?:-\w+\s+)*/(?:\s|\*|$)', line):
             findings.append({
                 "severity": "HIGH",
                 "title": "Destructive command in documentation",

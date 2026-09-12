@@ -1,7 +1,7 @@
 ---
 name: lm-studio
 description: "Configure, optimize, and troubleshoot LM Studio local inference server — memory tuning, crash/deadlock diagnosis, unified-memory systems (NVIDIA GB10/Project DIGITS), context sizing, and Hermes integration."
-version: 1.9.0
+version: 1.10.0
 author: Agent
 platforms: [linux, macos]
 tags: [lm-studio, inference, serving, gguf, local-llm, openai-api]
@@ -38,6 +38,24 @@ chmod +x ~/LM-Studio.AppImage
 ```
 
 ### Upgrade (overwrite existing)
+
+> ⚠️ **Step 0（用户约定，必做）：升级前先切 Hermes 模型到 DeepSeek。**
+> 升级期间本地 LM Studio 会重启、模型不可用——若当前会话正跑在本地 Qwen 上，kill/替换 AppImage 会让进行中的请求中断。所以**开始任何升级动作前**先把主模型切到云端 DeepSeek：
+>
+> ```bash
+> hermes config set model.provider deepseek
+> hermes config set model.default deepseek-v4-flash
+> # 内置 deepseek provider 自带 base_url=https://api.deepseek.com/v1 + DEEPSEEK_API_KEY（~/.hermes/.env），无需另设 base_url/api_key
+> ```
+>
+> - 切换对**新会话/下一轮**生效；当前 TUI 会话需 `/reset` 或重开才切过去。Gateway（飞书/微信）走自己的 provider，不受影响。
+> - **升级完成并验证后必须切回本地模型**：
+>   ```bash
+>   hermes config set model.provider lmstudio
+>   hermes config set model.default qwen3.8-27b@q8_0
+>   ```
+>
+> 若用户当前已在 DeepSeek（`hermes config get model` 显示 provider=deepseek），跳过 Step 0，升级后也无需切回。
 
 ```bash
 # 1. Find the running AppImage process (NOT "lm-studio" — it's the AppImage path)
@@ -137,17 +155,63 @@ rm ~/下载/LM-Studio-*.AppImage
 
 ## Hermes Integration
 
-### Basic — Single Model
+### 通过 `hermes model` 交互式配置 (推荐)
 
-Configure Hermes to use LM Studio as the main provider:
+在同一对话中切换到本地模型的推荐方式：
+
+```bash
+# 1）启动交互式模型选择器
+hermes model
+```
+
+**交互式配置每一步的输入：**
+
+| 步骤 | 显示 | 输入 |
+|------|------|------|
+| 1 | 提供者列表（默认 DeepSeek） | `30`（custom / direct API） |
+| 2 | API base URL | `http://127.0.0.1:1234/v1` |
+| 3 | API key | `not-needed` |
+| 4 | API 兼容模式 | `1`（Auto-detect） |
+| 5 | 确认检测到的模型 | `Y` |
+| 6 | Context length | 直接回车（auto-detect） |
+| 7 | Display name | `lmstudio` |
+
+完成后配置保存为 `custom:lmstudio`，`hermes model` 退出。
+
+> ⚠️ **当前对话不会切换到新模型。** 模型切换只在启动新 session 时生效。需要运行 `/reset` 或启动新的 `hermes` 实例。Gateway（飞书/微信）和 Cron 任务各自有独立的 model 配置，不会随 `hermes model` 切换。
+
+### Basic — Single Model (手动配置)
+
+Configure Hermes to use LM Studio as the main provider (OpenAI-compatible endpoint).
 
 ```bash
 hermes config set model.provider lmstudio
 hermes config set model.base_url http://127.0.0.1:1234/v1
-hermes config set model.default <model-id>   # e.g. nvidia/nemotron-3-super or qwen/qwen3.5-35b-a3b
+hermes config set model.api_key "not-needed"     # LM Studio has no auth by default
+hermes config set model.default <model-id>       # e.g. qwen3.8-27b@q8_0
 ```
 
-Model IDs match what LM Studio's `/v1/models` returns.
+> ⚠️ **必须用字面量 `provider: lmstudio`，不要用 `custom:lmstudio`。** 新版本 Hermes 内置识别 `lmstudio` provider（`agent/chat_completion_helpers.py` 中 `is_lmstudio = agent.provider == "lmstudio"`）——只有它能命中顶层 `reasoning_effort` 附加路径、能力探测（allowed_options）与免思考映射。若写成 `custom:lmstudio`，provider 字符串带 `custom:` 前缀，`is_lmstudio=False` → 不附加 `reasoning_effort`，思考关不掉。`custom:` 前缀的历史建议已过时。
+
+Model IDs match what LM Studio's `/v1/models` returns（响应为 `models` 键，字段 `key`，与 `_lmstudio_entry_for` 按 key/id 匹配）。Verify with:
+```bash
+curl -s http://127.0.0.1:1234/v1/models
+```
+
+### 关闭本地 Qwen 思考（Hermes 侧自动附加 reasoning_effort）
+
+Qwen3.x GGUF 默认 `reasoning_effort=xhigh`，每请求先耗 ~85–98 推理 tokens（感知慢的头号原因）。v0.4.23 后 API 层 `reasoning_effort: none` 已能真正关闭思考，Hermes 侧通过 per-model override 自动附加：
+
+```bash
+# 只针对本地 LM Studio 模型，不影响 DeepSeek 等生产 provider（它们无 override，走全局 agent.reasoning_effort: medium）
+hermes config set agent.reasoning_overrides '{"qwen3.8-27b@q8_0": "none", "qwen3.6-27b": "none", "qwen3.5-35b-a3b": "none", "qwen3.6-35b-a3b": "none"}'
+```
+
+生效链路（已实测）：config `reasoning_overrides` → `resolve_reasoning_config` 返回 `{'enabled': False}` → transport（`agent/transports/chat_completions.py` 主请求 + iteration-summary 路径）在 `is_lmstudio and supports_reasoning` 时调用 `resolve_lmstudio_effort` → 顶层 `api_kwargs["reasoning_effort"] = "none"`。能力探测匹配 `/api/v1/models` 的 `capabilities.reasoning.allowed_options`（如 `["off","on"]`），`none` 在映射集合内 → 必定发送。
+
+- 会话级临时覆盖：`/reasoning none`（session 级），`/reasoning none --global` 写入 config 全局（影响所有 provider，慎用）。
+- config.yaml 改动经 mtime 缓存，gateway 下一轮自动生效，**无需重启** gateway；CLI 新会话立即生效。
+- 验证：`python3 -c "import yaml; from hermes_constants import resolve_reasoning_config; print(resolve_reasoning_config(yaml.safe_load(open('$HOME/.hermes/config.yaml')), 'qwen3.8-27b@q8_0'))"` → `{'enabled': False}`。
 
 ### Dual-Model Routing (Local + Cloud)
 
@@ -155,9 +219,10 @@ Route daily/repetitive tasks to local LM Studio and complex tasks to a cloud pro
 
 ```bash
 # Main session → LM Studio (fast, local, for daily work)
-hermes config set model.provider lmstudio
+hermes config set model.provider custom:lmstudio
 hermes config set model.base_url http://127.0.0.1:1234/v1
-hermes config set model.default qwen/qwen3.5-35b-a3b
+hermes config set model.api_key "not-needed"
+hermes config set model.default qwen/qwen3.6-27b
 
 # Delegation (subagents) → cloud provider (for complex/capability-heavy tasks)
 hermes config set delegation.provider deepseek
@@ -170,6 +235,7 @@ How it works at runtime:
 - **`delegate_task` calls** automatically route to the cloud delegation model (more capable for debugging, research, complex refactors)
 - The DEEPSEEK_API_KEY (or equivalent cloud provider key) must be set in `~/.hermes/.env`
 - Config changes take effect after a session reset (`/reset` in CLI, or start a new `hermes` invocation)
+- Switching between local and cloud affects only the current TUI session — gateway (飞书/微信) continues using its own configured provider
 
 ## Diagnosing Crashes & Freezes
 
@@ -186,6 +252,8 @@ cat /var/crash/_usr_lib_xorg_Xorg.0.crash | strings | grep -iE "signal|crash|seg
 ls -lt ~/.lmstudio/server-logs/*/
 cat ~/.lmstudio/server-logs/<date>/<logfile>.log
 ```
+
+> ⚠️ Server logs contain full request bodies (tool schemas, message content) as JSON. Greps for engine keywords (`offload`, `n_ctx`) come back dominated by this noise — filter out lines starting with quotes/braces; engine startup lines may be absent from these logs entirely.
 
 Look for:
 - **mlock failures**: `"warning: failed to mlock ... Cannot allocate memory"` → need to increase memlock limit
@@ -282,16 +350,19 @@ For precise KV cache memory calculation at any context length, including the for
 
 | Model | Size on Disk | GPU Memory | Fit on GB10? | CUDA Speed | CPU Speed |
 |-------|-------------|-------------|-------------|-----------|----------|
+| Qwen3.6-27B (Q4_K_M) | ~16 GB | ~18 GB | ✅ Excellent | ~65 tok/s | ~25 tok/s |
 | Qwen3.5-35B-A3B (Q4_K_M) | 20 GB | ~22 GB | ✅ Excellent | ~76 tok/s | ~30 tok/s |
 | Qwen2.5-32B (Q4_K_M) | ~18 GB | ~20 GB | ✅ Excellent | ~50 tok/s | ~20 tok/s |
 | Llama-3.1-70B (Q4_K_M) | ~40 GB | ~42 GB | ⚠️ Tight | ~25 tok/s | ~12 tok/s |
 | Gemma-2-27B (Q4_K_M) | ~15 GB | ~17 GB | ✅ Excellent | ~60 tok/s | ~25 tok/s |
+| Qwythos-9B-Claude-Mythos-5-1M (BF16) | 18 GB | ~20 GB | ✅ Good | ~50 tok/s | ~20 tok/s |
 | Nemotron-3-Super-120B-A12B (Q3_K_M) | 64.65 GB | ~66 GB | ⚠️ OK with CUDA | ~20 tok/s | ~8 tok/s |
 | Nemotron-3-Super-120B-A12B (Q4_K_M) | 86.98 GB | ~88 GB | ❌ OOM on CUDA | — | ~6 tok/s |
 
 **For GB10 with CUDA backend:** models ≤ 65 GB on disk are safe (≥15GB headroom).
 **For GB10 with CPU backend:** models up to 80 GB on disk work, but slow.
 **Nemotron-3-Super sweet spot:** Q3_K_M (64.65GB) via bartowski or unsloth — use CUDA13 backend for ~20 tok/s.
+**Qwythos-9B:** Only BF16 available (no Q4/Q8). 18GB is acceptable but leaves less headroom than a Q4 quant would. For tighter dual-model combos, look for community Q4_K_M quantizations on HuggingFace.
 
 ### Accelerated Model Downloads (China Network)
 
@@ -329,6 +400,8 @@ hf download <user>/<model> --dry-run
 ```
 
 > 🔍 bartowski's quantizations always include a README with precise file sizes — [[readme](https://hf-mirror.com/bartowski/nvidia_Nemotron-3-Super-120B-A12B-GGUF/raw/main/README.md)].
+
+> 🔍 **ModelScope is the fastest GGUF discovery path from mainland China** — no mirror needed. Use `https://www.modelscope.cn/api/v1/models/{owner}/{repo}/repo/files?Revision=master&Recursive=true` to list quant files with exact sizes, and `/api/v1/models/{owner}/{repo}` to probe repo existence. Full API, worked example, and Qwen3.8-27B size table in `references/modelscope-model-discovery.md`.
 
 ## CUDA vs CPU Backend on ARM64/GB10
 
@@ -413,7 +486,7 @@ EOF
 
 ## Model Lifecycle (REST API)
 
-LM Studio's native API at `/api/v1/` can load/unload models without restarting the GUI.
+LM Studio's native API at `/api/v1/` can load/unload models without restarting the GUI. Speed measurement and slow-inference diagnosis workflows live in `references/model-deletion-and-speed-measurement.md`.
 
 ### Check Available Models (Native API)
 
@@ -480,7 +553,7 @@ Key services: `nvidia-disable-numa-balancing`, `nvidia-disable-init-on-alloc`, `
   3. **Accept any variant re-download** that LM Studio performs — the re-downloaded GGUF may differ slightly in size but is functionally equivalent.
 
 - **Hub auto-redownload after deleting GGUF files.** LM Studio's `~/.lmstudio/hub/models/<user>/<model>/` virtual model registrations can trigger **automatic HuggingFace downloads** when the model directories are restored after a GGUF file removal. If you delete a GGUF variant that belongs to a registered virtual model, and the hub registration is present, LM Studio may silently re-download the file on next startup. Observed in practice: a removed 20GB Q4 was re-downloaded as a 19.72GB variant. To avoid this: (a) first remove/rename the hub registration directory, (b) then delete the GGUF, (c) optionally restore the hub registration if you want the virtual model wrapper back. If step (c) triggers a re-download, accept it or keep the hub registration permanently removed.
-- **Jinja template error with system messages.** Some Qwen GGUF quantizations may fail with "No user query found in messages" when the first message is a system role. This is a model-specific chat template issue — try using `lmstudio-community/` variants which have fixed prompt templates, or restart LM Studio and retry.
+- **Jinja template error with empty/fresh conversation.** Some Qwen GGUF quantizations fail with `"No user query found in messages"` on the **first message** of a fresh session. The root cause is the Qwen chat template failing to detect the user message role in a new conversation context. This error can be **misleading** in gateway setups: if the TUI session fails with this error, the gateway session (using a different provider like DeepSeek) is **unaffected** and replies normally, but the user sees the TUI error and the gateway's reply side-by-side, assuming both are from the same session. The `systematic-debugging` reference `diagnosing-cross-session-error-illusion.md` covers how to disambiguate this. Recovery: restart the TUI session (`/reset` in Hermes CLI or close/reopen the TUI tab); if the inference engine hangs after this error, kill and restart LM Studio entirely (`killall -9 lm-studio && ~/LM-Studio.AppImage --no-sandbox`).
 - **NEVER set context_length beyond hardware limits on unified memory.** A single request with inflated context (e.g. 64K on Nemotron-120B) can trigger instant OOM and system crash.
 - **Prompt cache is ~8GB by default** and cannot be disabled through LM Studio's exposed config. Only reduce context length to lower KV cache overhead.
 - **Memlock changes require logout/reboot** (`ulimit -l` only shows the change after re-login).
@@ -491,6 +564,8 @@ Key services: `nvidia-disable-numa-balancing`, `nvidia-disable-init-on-alloc`, `
 - **"It worked before the reinstall"** is the #1 diagnostic clue. LM Studio's CUDA backend may not have been active before, or an older LM Studio version used a different memory allocation path.
 - **n_ctx default can jump 32× between llama.cpp versions.** Backend versions 2.22.0 and earlier default to 8192; 2.23.0+ defaults to model-native max (often 262144). This inflated default can trigger GPU driver timeouts on unified-memory systems even when total memory is sufficient. **Always check `n_ctx` in server logs** after an LM Studio update that causes new stability issues. The fix is manual context length reduction in model settings, not a backend downgrade.
 - **A request that causes a jinja template error** ("No user query found in messages") can hang the inference engine. Symptoms: HTTP server responds to `/health` but `/v1/models` returns `{"data":[]}` (no loaded instances) and `/v1/chat/completions` times out. Recovery: kill all lm-studio processes (`killall -9 lm-studio`) and restart.
+- **Dual-model crash root cause is KV cache, not weights.** On GB10, model weights that individually fit can still crash when loaded together at high context length. The KV cache grows linearly with context: a 128K context on two models can add 30-50GB of KV cache on top of weights. **Keep context ≤ 32K for dual-model safety.** See `references/context-sizing-gb10.md` for exact calculations per model combo.
+- **Thinking-type models are the #1 cause of perceived slowness — not vision, not GPU.** Qwen3.x GGUFs default to `reasoning_effort=xhigh` and emit ~85–98 reasoning tokens per request before any visible content (~8s at 27B Q8_0 speed). **v0.4.18 ignored every API-level control** (`enable_thinking`, `/no_think`, top-level `reasoning_effort`, `chat_template_kwargs.reasoning_effort`) — verified A/B. **v0.4.23+ FIXED this: top-level `reasoning_effort: "none"` (and presumably low/medium) now genuinely disables thinking** — verified A/B on qwen3.6-35b-a3b Q8_0: `none` → direct answer in 0.54s with 0 reasoning tokens vs default → 3.7–10s with all tokens consumed by reasoning. `enable_thinking: false` still does NOT work in v0.4.23 — use `reasoning_effort`. Diagnose with the prefill/thinking separation workflow in `references/model-deletion-and-speed-measurement.md`.
 
 ## Verification
 

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=3.2.29
+Encoding=UTF-8
+Name=腾讯QQ
+Comment=腾讯QQ
+Exec=/home/bobobears/.local/opt/QQ/qq --disable-gpu %U
+Icon=/home/bobobears/.local/opt/QQ/QQ.png
+Terminal=false
+Type=Application
+Categories=Application;Network;
+StartupNotify=true
+Name[zh_CN]=腾讯QQ
+GenericName[zh_CN]=QQ
+Comment[zh_CN]=腾讯QQ

@@ -50,9 +50,25 @@ Useful for discovering:
 - Agent frameworks and tools
 - Prompt engineering resources
 
+## Also: skills.sh (Vercel Agent Skills Directory)
+
+skills.sh hosts a community-maintained skill directory with install-count rankings. Data is scraped from the website (no public API). See [references/skills-sh-parsing.md](references/skills-sh-parsing.md) for the parsing recipe.
+
+Quick command:
+```bash
+# Run the full scanner (GitHub + skills.sh + skillstore.io)
+python3 ~/.hermes/scripts/top-hermes-skills.py
+```
+
+## Next step: install
+
+Once you've found a skill to install, use `install-community-skill` for the full
+download + security audit + installation workflow.
+
 ## Pitfalls
 
 1. **Rate limiting**: Unauthenticated GitHub API calls are capped at **60 requests/hour**. If you hit `{"message": "API rate limit exceeded"}`, use the authenticated path above (gh or token).
 2. **China network**: `api.github.com` is accessible from mainland China but can be slow. Do NOT route API calls through `ghproxy.net` — the proxy is for raw URLs and git clone, not API endpoints. Use SSH or direct HTTPS for API.
 3. **Unstable results**: Search results can vary by authentication level. Authenticated searches return richer results and are less likely to be truncated.
 4. **jq may not be installed**: Use `python3 -m json.tool` as a reliable fallback — it's available wherever Python 3 is installed.
+5. **skills.sh format changes**: The site migrated to Next.js RSC in 2026-07, breaking traditional `__NEXT_DATA__` parsing. If scraping fails, check [references/skills-sh-parsing.md](references/skills-sh-parsing.md) for the latest approach.

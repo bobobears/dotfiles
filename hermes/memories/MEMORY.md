@@ -1,143 +1,45 @@
-# 持久知识库 (Persistent Knowledge)
-
-> 这个文件是 Hermes 的"长期记忆"，记录环境配置、工具用法、修复方案等不会被频繁改变的稳定事实。
-> 与 memory tool 的区别：memory 存的偏"快速事实"（偏好、小技巧），MEMORY.md 更偏向"参考手册"。
-
----
-
-## 1. 网络环境
-
-### 局域网 (LAN)
-- 网段：`192.168.31.0/24`
-- 网关：`192.168.31.1`
-- 本机（DGX Spark）：`192.168.31.149`
-- Dell 机器：`192.168.31.113`
-
-### 代理 & 镜像
-
-| 服务 | 代理方式 | 用途 |
-|------|---------|------|
-| GitHub | ghproxy.com | raw 文件、zip 下载、git clone |
-| HuggingFace | hf-mirror.com | HF API 查询、模型下载（比 ghproxy 更快更稳定） |
-
-> ⚠️ ghproxy 不能代理 hf.co 域名
-
-### 飞书 DNS 修复
-- 将 `open.feishu.cn` 静态 IP 写入 `/etc/hosts`
-- 系统 DNS 设为 `223.5.5.5` / `114.114.114.114`（阿里 DNS）
-
----
-
-## 2. Hermes Agent 配置
-
-### 模型策略
-
-```
-生产主力: DeepSeek (deepseek-v4-flash) — 默认 provider
-本地实验: LM Studio Qwen (http://127.0.0.1:1234/v1, qwen/qwen3.5-35b-a3b) — 仅用户明确指令时切换
-重要: 切到本地 Qwen 后，需要从外部终端重启 gateway 才能恢复 DeepSeek
-```
-
-### Gateway 状态
-
-| 平台 | App ID / Bot | 配对方式 | 状态 |
-|------|-------------|---------|------|
-| 飞书 | cli_aabe74606538dcc7 | DM | ✅ 群聊 @mentioned only |
-| 微信 | iLink Bot | DM pairing | ✅ 群聊 disabled |
-
-- Gateway 作为 systemd user service 运行
-
-### 桌面版修复
-```
-Hermes Desktop 升级后若 chrome-sandbox 权限问题：
-sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox
-（在 Hermes Desktop 安装目录下）
-```
-
-### DGX Spark (GB10) 限制
-- 架构：Blackwell, ARM64
-- CUDA 版本支持：CUDA 13+ 以上
-- 内存：80GB 统一内存
-- 最大可运行模型：Q3_K_M (64.65GB) 的 Nemotron-3-120B
-
----
-
-## 3. 项目 & 代码
-
-### DSA 项目
-- 路径：`/home/bobobears/dsa/`
-- 规模：206 个 Python 文件
-- API 配置：硅基流动 (SiliconFlow) + Tushare
-- 当前状态：已部署，等待飞书 Webhook 推送配置
-
-### 私人数据库
-- 路径：`~/private_db/private.db`
-- 引擎：SQLite
-- 操作命令：`cd ~/private_db && python3 db.py <参数>`
-- 支持子命令：`watchlist`、`scores`、`trades`、`notes`、`sql`、`backup`
-
-### DSA 每日评分自动写入
-- 脚本：`~/private_db/save_dsa_scores.py`
-- 定时：每天 9:00（cron: c1da698090bf）
-- 流程：先检查交易日 → 跑 main.py → 写入评分
-- 推送：仅发飞书（oc_0ceccf7646b77e9bde35e360953fe805），不发微信
-
-### dotfiles 备份
-- 仓库：`bobobears/dotfiles`
-- 定时：每周六 17:00（cron: 61dd31d23087）
-- 关联技能：`dotfiles-backup`
-- 备份内容：shell 配置、Hermes (config + SOUL + memories + skills)、SSH 公钥、包清单、GNOME 配置
-
----
-
-## 4. 工具 & 技能
-
-### BBDown（B 站下载）
-- 路径：`~/.local/bin/BBDown`
-- 版本：v1.6.3
-- 架构：ARM64
-- 关联技能：`media/bilibili-content`
-
-### Whisper（语音转写）
-- 环境：`~/whisper-env/`
-- 加速：CUDA GPU
-- 用途：B 站视频语音转文字
-
----
-
-## 5. 安全 & 规范
-
-### 新技能安全审计
-```
-任何新建或安装的 skill，创建/安装后必须立即：
-1. 用 security-audit 的 audit_skills.py 审计该技能
-2. 确认无 HIGH/MEDIUM 安全问题
-3. 发现问题必须先修复再交付
-```
-
-### Git 认证
-- 邮箱：60591511@qq.com
-- 认证方式：gh CLI
-
-### 版本管理规范
-- 个人项目使用 conventional commits
-- 所有提交前应检查安全性
-
----
-
-## 6. 备份文件清单参考
-
-| 类别 | 路径/内容 |
-|------|----------|
-| Shell 配置 | ~/.bashrc, ~/.zshrc, ~/.config/fish/ |
-| Hermes 全局 | ~/.hermes/config.yaml, .env, SOUL.md |
-| Hermes 记忆 | ~/.hermes/memories/ |
-| Hermes 技能 | ~/.hermes/skills/ |
-| SSH 密钥 | ~/.ssh/id_*.pub |
-| 包清单 | pip list / apt list --installed |
-| GNOME 配置 | dconf dump / |
-| 私人数据库 | ~/private_db/ |
-
----
-
-*最后更新：2026-07-04*
+LAN subnet: 192.168.31.0/24, router: 192.168.31.1 (Xiaomi/XiaoQiang), Dell machine: 192.168.31.113, this machine: 192.168.31.149。本机局域网应用端口：HRMS 8000、会议通知发布台 8077（~/meeting_notice，systemd --user meeting-notice）
+§
+新技能安全审计规则：创建或安装任何新技能后，必须用 security-audit 的 audit_skills.py 审计该技能，确认无 HIGH/MEDIUM 安全问题后才算完成。发现问题的必须先修复再交付。
+§
+三者DM策略均pairing。WeCom自建应用回调需公网HTTPS; 日志查 logs/gateway.log。iLink微信发送长期限流，通知优先飞书
+§
+通达信盘后数据路径: /home/bobobears/thinclient_drives/E:/zd_hazq_gm/vipdoc/{sz,sh}/lday/。深交所 sz{code}.day，上交所 sh{code}.day。struct格式 <iiiiifii，价格缩放100。每日分析 cron job (c1da698090bf) 已配置为外网搜索失败时的 fallback 数据源。
+§
+salary_basics 参数页面现状：8分类41条（基本工资、行政/岗位/技能/工龄补助等级、社保、公积金、考勤）。考勤含一般加班50/天、节日加班100/天、春节加班160/天。事假/病假扣款自动计算：(基本工资+四项补助)/21.75。公积金按行政等级分5档（正职7500~无级别2500）。无"其他"分类
+§
+HRMS 后端验证规范：端到端验证脚本写入 `/tmp/hermes-verify-*.py`，完成后清理。创建测试员工用 `TEST{timestamp}` 前缀，验证后 DELETE 清理
+§
+HRMS 员工部门字段回填：16人 department=NULL 但 admin_dept 也未填，考勤/工资页面已加 COALESCE(department, admin_dept, '未分配') SQL 回退模式
+§
+HRMS admin 账号密码: admin / admin123（SHA256 哈希存于 db/hrms.db users 表）。数据库路径: /home/bobobears/hrms/db/hrms.db（非 backend/employees.db，后者为空文件）。systemd user service 位于 ~/.config/systemd/user/hrms.service，已修复 User= 指令问题。
+§
+每日股票分析 cron(c1da698090bf) 已固定 deepseek-v4-flash（本地 Qwen 长上下文生成会卡死触发 180s 超时）
+§
+HRMS 薪酬参数计算公式：病/事假扣款日工资基数 = (基本工资+岗位补助+技能补助+工龄补助+行政补助+特殊补助)/21.75。deduct_absent_day=0 表示按日工资基数全额扣，deduct_sick_day=0 表示按日工资基数×30%扣。参数>0 则为固定金额。行政级别公积金映射：主管→supervisor(3750)，主办→chargeman(3125)。
+§
+HRMS 薪酬手动修改优先规则：基本工资、四项补助（行政/岗位/技能/工龄）、社保、公积金一旦手动修改，新建工资表时优先沿用上月手动值，不从薪酬参数重新计算。结算考勤时不覆盖 deduct_social、deduct_housing、deduct_other 手动值。
+§
+HRMS 返聘人员不计工龄：calc_employee_allowances 中 employment_type='返聘' 时 allow_seniority 强制为 0。
+§
+HRMS 考勤结算小数问题：api_batch_settle_attendance 中所有考勤数量用 round(float()*rate, 2) 而非 int()，避免 0.5 次外勤被截断为 0。
+§
+HRMS 工资表人员固定排序（27人）：金驰、蔡旭凯、陈东升、陈胜、朱静涛、檀小平、朱精灵、雷童童、刘炜、占梦莹、叶圣婷、韩维娜、张雪玲、娄蓉、方珍华、董春霞、白川、马燕妮、姚万利、张昌义、陈实庆、王柳青、江爱军、潘功寅、王丰荣、张晶、江浩。通过 employees.display_order 字段实现。
+§
+x-terminal-emulator 配 gnome-terminal；请勿 pin 飞书域名
+§
+用户偏好：先看效果再决定下一步。TTS：默认 provider=edge，voice=zh-CN-XiaoxiaoNeural；Piper 本地引擎已装（piper-tts 1.6.0 in hermes venv），中文语音 zh_CN-huayan-medium 手动从 hf-mirror 下到 ~/.hermes/cache/piper-voices/（piper 下载器硬编码 huggingface.co，国内不可用）
+§
+大模型/GGUF 下载优先 ModelScope：列表 https://www.modelscope.cn/api/v1/models/{repo}/repo/files?Revision=master&Recursive=true；直链 .../models/{repo}/resolve/master/{文件}（302 cdn-lfs-cn-1）。aria2c --user-agent="Mozilla/5.0"；预分配大小中途看似完成，须 sha256 验证。LM Studio 接入：外部 GGUF 不显示（三层：文件+hub注册+download-jobs/single-downloads）；官方代理 0.3MB/s，用 ModelScope 同字节文件替换；pkill "LM-Studio.AppImage" 匹配不到运行时进程 /tmp/.mount_LM-Stu.../lm-studio；lms import --hard-link -y --user-repo {user}/{repo} 注册本地文件
+§
+GitHub Releases 镜像：ghproxy.com 超时不可用，ghfast.top 可用且快
+§
+重型精神障碍患者库:~/smd_db/(smd.db+smd.py),新增INSERT patients(seq_no=max+1)+change_log留痕。seq_no管理序号,花名册呈现号导出重编勿混;.bak在~/下载/精神障碍管理/。只用本地模型。导出新增行须格式统一纳入外边框(make_table base_row回退)。国标14表已建库(forms_schema.py);每新增对象必填四表:5知情同意/6基本信息/7补充表/8随访记录,smd.py forms核查
+§
+医学知识库：~/private_db/knowledge/（db/knowledge.db + medical目录 + source原文），流程见 skill: medical-guideline-kb。四库：指南规范、医保监管规则(insurance_rules/codes)、2025药品目录(yb_drugs 4853)、安徽服务价格(皖医保发〔2025〕18/22号,yb_price_items 4313含单价)。
+§
+/etc/hosts: open.feishu.cn 固定IP已注释改用真实DNS（CDN IP轮换勿pin飞书）；weixin/deepseek仍固定。推送失败先查hosts；改文件用 pkexec sed -i。网关重启会中断运行中cron任务，修完手动补跑
+§
+Hermes web 后端=tavily(密钥在.env)，firecrawl 作 keyless 兜底；排障见 skill: hermes-web-search-backend
+§
+企微机器人显示名『小卫』（改名只在企微管理后台，Hermes 侧无名称配置；仅改显示名不动 Bot ID/Secret）。企微群已接管: chatid=wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg（华中路街道社区卫生服务中心）—— 单位办公群，仅办公事务，禁提股票/投资/私人话题；群级规矩写在 platforms.wecom.channel_overrides.<群id>.system_prompt（网关层，非适配器 channel_prompts；替换临时提示层不动 SOUL.md）。group_policy=allowlist 仅放行 bobobears; 群内只收@、只能被动回复，主动推送需另建群机器人 webhook

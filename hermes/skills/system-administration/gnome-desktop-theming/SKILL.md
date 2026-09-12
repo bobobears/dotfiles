@@ -204,6 +204,50 @@ gsettings set org.gnome.desktop.interface text-scaling-factor 1.0
 > **按 `Alt+F2` → 输入 `r` → 回车** 重启 Shell
 > 或者直接 **注销重新登录**
 
+## 创建桌面快捷方式（.desktop 文件）
+
+在 GNOME 桌面创建应用快捷图标时，必须遵循以下规则：
+
+```ini
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AppName
+Comment=Description
+Exec=/path/to/start.sh
+Icon=/path/to/icon.png
+Terminal=false
+Categories=Graphics;Art;
+StartupNotify=false
+```
+
+### 关键步骤
+
+1. **`.desktop` 文件位置**：放在 `~/Desktop/` 或 `~/.local/share/applications/`
+2. **执行权限**：`chmod +x ~/Desktop/app.desktop`
+3. **标记为受信任**（GNOME 桌面必需）：
+   ```bash
+   gio set ~/Desktop/app.desktop metadata::trusted 1
+   ```
+4. **`Exec` 行**：
+   - ❌ **不要**用 `env VAR=value command` — GNOME 不解析 `env`
+   - ❌ **不要**设 `Terminal=true` — 桌面图标不支持
+   - ✅ **正确做法**：创建一个 `.sh` 启动脚本，在脚本中 `export` 环境变量，然后 `Exec` 指向脚本，`Terminal=false`
+
+### 启动脚本模板
+
+```bash
+#!/bin/bash
+export PYTHONPATH=""  # 或其他环境变量
+exec /path/to/binary "$@"
+```
+
+### 图标
+
+- 使用绝对路径指向 `.png` 文件
+- 图标文件复制到稳定位置（不要放在 venv 内部，升级后会丢失）
+- 也可以引用系统图标主题中的图标名（如 `utilities-terminal`）
+
 ## 常见陷阱
 
 1. **gnome-extensions 报错 "连接 GNOME Shell 失败"**
@@ -234,6 +278,16 @@ gsettings set org.gnome.desktop.interface text-scaling-factor 1.0
    - `gsettings` 操作的是用户级 dconf 数据库，即时生效
    - 如果完全不生效，检查是否在错误的 $DISPLAY/$WAYLAND_DISPLAY 下
    - 可以确认 `echo $DBUS_SESSION_BUS_ADDRESS` 是否有效
+
+7. **桌面图标双击无反应 / "无法执行默认终端模拟器"**
+   - 原因 A：`x-terminal-emulator` 断裂 → `sudo update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/gnome-terminal 50`
+   - 原因 B：`.desktop` 文件未标记受信任 → `gio set ~/Desktop/app.desktop metadata::trusted 1`
+   - 原因 C：`Terminal=true` 在桌面图标中不生效 → 改用 `Terminal=false` + 启动脚本
+   - 原因 D：`Exec=env VAR=value command` 不被 GNOME 解析 → 改用启动脚本
+
+8. **桌面图标创建后不显示**
+   - GNOME 有时需要刷新：`touch ~/Desktop/app.desktop`
+   - 或注销重新登录
 
 ## 验证检查清单
 

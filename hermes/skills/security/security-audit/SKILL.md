@@ -187,6 +187,20 @@ python ~/.hermes/skills/security/security-audit/scripts/audit.py -c ssh kernel
 4. **审计结果过多**
    - 先用 `--category` 指定单个分类检查，缩小范围
 
+## 技能审计误报：如何解读 "Potential credential in documentation"
+
+该检查是**关键词启发式**，不是凭据验证。正则 `(password|api[_-]?key|secret|credential)[:\s=]+(值)` 在整行散文上匹配，因此以下都是**误报**：
+
+- 散文里的关键词 — `the secret in plaintext.`、`App Secret manually** — for pre-existing apps`
+- 占位符 — `WECOM_SECRET=<secret>`、`NOTION_API_KEY=ntn_your_key_here`
+- 环境变量**名** — `ENV_API_KEY = "COMFY_CLOUD_API_KEY"`
+
+**处理原则**：看到此类 HIGH 先人工核对命中行原文，不要直接判定技能有问题。
+
+脚本已加精度过滤（2026-09 起）：捕获值**含空白**或**形如占位符**（`<...>`、`{{...}}`、`YOUR_`、`xxxx`）时不再告警，真实凭据（无空白的 `password: hunter2secret99`、`WECOM_SECRET=ds7Wt7Qk1fQYk`）仍被捕获。
+
+同理，`Destructive command in documentation` 也会命中 `rm -rf /tmp/hello-world-test` 这类**限定路径**的示例（正则是 `rm\s+-rf\s+/`）—— 命中不代表真危险，看路径是否为根目录。
+
 ## 验证检查清单
 
 - [ ] `python audit.py` 正常运行并输出结果

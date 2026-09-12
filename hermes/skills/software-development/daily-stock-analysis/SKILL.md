@@ -117,6 +117,14 @@ python main.py
 - workdir: `/home/bobobears/dsa`
 - prompt: 运行分析 + 读取报告 + 中文摘要
 
+### ⚠️ Cron 任务故障恢复（API fallback）
+
+Hermes cron 任务调用 LLM API 时可能因短暂不可用而失败（最常见：DeepSeek `[Errno 32] Broken pipe`）。**Hermes 没有内置 `fallback_providers` 配置项。**
+
+解决方案：在 cron prompt 中加入三级降级指令（详细参考 `/home/bobobears/.hermes/skills/data-science/stock-analysis-automation/SKILL.md` 的 Cron Job Resilience 部分）。
+
+同时务必锁定 cron 任务的 `model`/`provider` 字段，防止全局配置切换导致任务失败。
+
 ### 8.（可选）数据持久化：评分自动写入本地数据库
 
 DSA 每日分析产生的评分/趋势/操作建议，持久化后可做历史趋势分析、评分走势图、回测验证。
@@ -272,3 +280,10 @@ url = "https://datacenter.eastmoney.com/securities/api/data/v1/get" \
 - **ZIP 截断**：GitHub archive 是 store 格式，不完整时可用 local file header 手动提取
 - **东方财富接口断连**：因网络波动，系统会自动切换数据源（Tushare → Tencent → AkShare）
 - **服务器启动失败**：检查缺失的 .py 文件（ModuleNotFoundError），用 ghproxy 补下
+- **搜索失败 — "未获取到可用的公共 SearXNG 实例"**：DSA 默认从 `searx.space` 自动发现公共实例，国内 DNS 解析失败。修复：在 `.env` 中添加：
+  ```bash
+  SEARXNG_BASE_URLS=http://127.0.0.1:8080
+  SEARXNG_PUBLIC_INSTANCES_ENABLED=false
+  ```
+  如果本地有 SearXNG Docker 容器，端口通常是 **8080**（不是 8888），用 `docker ps` 确认。
+- **筹码分布获取失败**：东方财富 `push2his.eastmoney.com` DNS 不可达时自动跳过，不影响核心评分
