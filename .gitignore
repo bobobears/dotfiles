@@ -15,6 +15,18 @@ gnome/dconf-full-backup.txt
 hermes/skills/*/.git/
 hermes/skills/*/node_modules/
 
+# Skills 运行时状态/锁/用量统计（非配置，不备份）
+hermes/skills/.bundled_manifest
+hermes/skills/.curator_backups/
+hermes/skills/.curator_ledger.jsonl
+hermes/skills/.curator_state
+hermes/skills/.hub/
+hermes/skills/.locks/
+hermes/skills/.usage.json
+hermes/skills/.usage.json.lock
+hermes/skills/*.tmp
+hermes/skills/**/*.log
+
 # 不备份含密钥的环境文件（保留 .env.example 模板）
 .env
 .env.local

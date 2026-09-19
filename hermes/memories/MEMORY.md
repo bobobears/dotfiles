@@ -2,7 +2,7 @@ LAN subnet: 192.168.31.0/24, router: 192.168.31.1 (Xiaomi/XiaoQiang), Dell machi
 §
 新技能安全审计规则：创建或安装任何新技能后，必须用 security-audit 的 audit_skills.py 审计该技能，确认无 HIGH/MEDIUM 安全问题后才算完成。发现问题的必须先修复再交付。
 §
-三者DM策略均pairing。WeCom自建应用回调需公网HTTPS; 日志查 logs/gateway.log。iLink微信发送长期限流，通知优先飞书
+三者DM策略均pairing。WeCom自建应用回调需公网HTTPS; 日志查 logs/gateway.log。iLink微信限流(errcode -2)不可根治→cron通知统一走飞书；weixin.extra 已调 send_chunk_delay_seconds=4s、circuit 60s（改后须用户外部重启 gateway）
 §
 通达信盘后数据路径: /home/bobobears/thinclient_drives/E:/zd_hazq_gm/vipdoc/{sz,sh}/lday/。深交所 sz{code}.day，上交所 sh{code}.day。struct格式 <iiiiifii，价格缩放100。每日分析 cron job (c1da698090bf) 已配置为外网搜索失败时的 fallback 数据源。
 §
@@ -14,7 +14,7 @@ HRMS 员工部门字段回填：16人 department=NULL 但 admin_dept 也未填�
 §
 HRMS admin 账号密码: admin / admin123（SHA256 哈希存于 db/hrms.db users 表）。数据库路径: /home/bobobears/hrms/db/hrms.db（非 backend/employees.db，后者为空文件）。systemd user service 位于 ~/.config/systemd/user/hrms.service，已修复 User= 指令问题。
 §
-每日股票分析 cron(c1da698090bf) 已固定 deepseek-v4-flash（本地 Qwen 长上下文生成会卡死触发 180s 超时）
+本地Qwen长上下文可卡死~57分钟(流中断自动切回deepseek)；vision/标题等辅助任务走lmstudio会被拖垮全超时；股票cron(c1da698090bf)固定deepseek-v4-flash
 §
 HRMS 薪酬参数计算公式：病/事假扣款日工资基数 = (基本工资+岗位补助+技能补助+工龄补助+行政补助+特殊补助)/21.75。deduct_absent_day=0 表示按日工资基数全额扣，deduct_sick_day=0 表示按日工资基数×30%扣。参数>0 则为固定金额。行政级别公积金映射：主管→supervisor(3750)，主办→chargeman(3125)。
 §
@@ -26,7 +26,7 @@ HRMS 考勤结算小数问题：api_batch_settle_attendance 中所有考勤数�
 §
 HRMS 工资表人员固定排序（27人）：金驰、蔡旭凯、陈东升、陈胜、朱静涛、檀小平、朱精灵、雷童童、刘炜、占梦莹、叶圣婷、韩维娜、张雪玲、娄蓉、方珍华、董春霞、白川、马燕妮、姚万利、张昌义、陈实庆、王柳青、江爱军、潘功寅、王丰荣、张晶、江浩。通过 employees.display_order 字段实现。
 §
-x-terminal-emulator 配 gnome-terminal；请勿 pin 飞书域名
+x-terminal-emulator 指向 gnome-terminal
 §
 用户偏好：先看效果再决定下一步。TTS：默认 provider=edge，voice=zh-CN-XiaoxiaoNeural；Piper 本地引擎已装（piper-tts 1.6.0 in hermes venv），中文语音 zh_CN-huayan-medium 手动从 hf-mirror 下到 ~/.hermes/cache/piper-voices/（piper 下载器硬编码 huggingface.co，国内不可用）
 §
@@ -43,3 +43,5 @@ GitHub Releases 镜像：ghproxy.com 超时不可用，ghfast.top 可用且快
 Hermes web 后端=tavily(密钥在.env)，firecrawl 作 keyless 兜底；排障见 skill: hermes-web-search-backend
 §
 企微机器人显示名『小卫』（改名只在企微管理后台，Hermes 侧无名称配置；仅改显示名不动 Bot ID/Secret）。企微群已接管: chatid=wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg（华中路街道社区卫生服务中心）—— 单位办公群，仅办公事务，禁提股票/投资/私人话题；群级规矩写在 platforms.wecom.channel_overrides.<群id>.system_prompt（网关层，非适配器 channel_prompts；替换临时提示层不动 SOUL.md）。group_policy=allowlist 仅放行 bobobears; 群内只收@、只能被动回复，主动推送需另建群机器人 webhook
+§
+本机桌面是 xrdp 远程会话(DISPLAY :10,2560x1440)；已设 allow_multimon=false 单屏，根治窗口跑出屏幕；改 xrdp.ini 需 pkexec+重启，会使旧会话失联(须先杀旧会话)；详见 skill x11-window-recovery

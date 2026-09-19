@@ -117,6 +117,23 @@ python main.py
 - workdir: `/home/bobobears/dsa`
 - prompt: 运行分析 + 读取报告 + 中文摘要
 
+### ⚠️ 定时任务的分工设计（勿误判为故障）
+
+生产 cron 走的是**两段式**设计，不是单纯的 `python main.py`：
+
+| 阶段 | 执行者 | 命令 | 说明 |
+|:----|:------|:-----|:-----|
+| 步骤 1 — 取数 | DSA 脚本 | `python3 main.py --dry-run --no-market-review` | 只抓行情，**故意不跑 LLM** |
+| 步骤 2 — 校验 | Agent | 读日志确认 9 只自选股数据完整 | — |
+| 步骤 3 — 分析 | **Hermes 对话模型** | 用上一步取到的数据分析技术面 | 不消耗 SiliconFlow 额度 |
+| 步骤 4 — 报告 | Agent | 生成中文报告，最终回复自动投递 | 含【大盘概况】由 Agent 自写 |
+
+关键点：
+- 日志里出现 `跳过 AI 分析（dry-run 模式）` / `模式: 仅获取数据` 是**正常设计**，不是故障——LLM 分析由 Hermes Agent 在步骤 3 完成，不走 DSA 内置的 SiliconFlow 通道
+- `--no-market-review` 跳过 DSA 自己生成大盘复盘（`reports/market_review_*.md`），省 1-2 分钟；大盘概况改由 Agent 在步骤 4 撰写
+- 想看 DSA 自带 LLM 的完整分析报告（`reports/report_*.md`），需手动跑不带 `--dry-run` 的 `python main.py`
+- 修改 cron：`hermes cron edit <job_id> --prompt "$(cat 新prompt文件)"`，比手抄长 prompt 安全
+
 ### ⚠️ Cron 任务故障恢复（API fallback）
 
 Hermes cron 任务调用 LLM API 时可能因短暂不可用而失败（最常见：DeepSeek `[Errno 32] Broken pipe`）。**Hermes 没有内置 `fallback_providers` 配置项。**
