@@ -71,7 +71,11 @@ cp ~/private_db/db.py ~/dotfiles/private_db/
 cp ~/private_db/init_schema.py ~/dotfiles/private_db/
 cp ~/private_db/is_trading_day.py ~/dotfiles/private_db/
 cp ~/private_db/save_dsa_scores.py ~/dotfiles/private_db/
+cp ~/private_db/weixin_daily_digest.py ~/dotfiles/private_db/
+cp ~/private_db/weixin_init_db.py ~/dotfiles/private_db/
 ```
+
+> 一次性执行可运行 `~/dotfiles/scripts/backup-private-db-scripts.sh`（已含上述全部脚本）。新增工具脚本时同步更新该脚本与本清单。
 
 > ⚠️ 不备份 .db 文件本身（体积变化大、含业务数据），只备份工具脚本
 
@@ -139,3 +143,7 @@ git rev-parse HEAD  # 记下最新的 commit SHA
   git config --global --unset url."https://ghproxy.net/https://github.com/".insteadOf
   ```
 - **技能数量变化**：备份技能时如果新增/删除了技能，`skills-list.txt` 会自动更新
+- **复制技能目录不要带隐藏项**：技能本体用 `cp -r ~/.hermes/skills/* ~/dotfiles/hermes/skills/`（`*` 不含隐藏项）。若图省事用 `skills/.`，会把 `.usage.json`、`.locks/`、`.curator_backups/`、`.curator_state`、`.hub/`、`*.tmp` 等**运行时状态**一并复制进来污染仓库——`.gitignore` 已忽略这些路径，且备份后应 `rm` 掉已复制的工作树副本
+- **gh 认证失效不影响推送**：`gh auth status` 可能报 keyring token invalid，但 `origin` 走 SSH（`git@github.com:bobobears/dotfiles.git`），只要 `ssh -T git@github.com` 认证通过即可正常 push，无需重新 `gh auth login`
+- **`dconf dump /org/gnome/terminal/` 在本机返回空**：属正常现象（与提交版本的 0 字节一致），不是回归，不必排查
+- **cron 环境 DNS**：本机 `/etc/hosts` 已用真实 DNS 解析 github.com（20.205.243.166），cron 下通常直接可用；`getent hosts github.com` 有返回即可直接 SSH 推送
