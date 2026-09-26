@@ -6,7 +6,6 @@ chinese-code-review
 chinese-commit-conventions
 chinese-documentation
 clawsec-clawhub-checker
-comfyui-linux-setup
 creative
 creative-ideation
 data-science
@@ -16,12 +15,9 @@ dispatching-parallel-agents
 dotfiles-backup
 email
 finance
-game-lore-and-fiction
 github
 github-agent-skill-search
 hermes-local-browser-setup
-hrms-salary-calculation
-hrms-salary-system
 install-community-skill
 linear
 mcp-builder

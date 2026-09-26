@@ -90,6 +90,7 @@ agent_created: true
 - `scripts/gen_schedule.py` — 2026年7月排班表生成脚本（含完整排班数据和样式）。
 - `scripts/gen_schedule_aug.py` — 2026年8月排班表生成脚本（从7月末状态正确衔接推导）。
 - `scripts/gen_schedule_sep.py` — 2026年9月排班表生成脚本（从8/31状态衔接，含跨月边界审计）。
+- `scripts/gen_schedule_oct.py` — 2026年10月排班表生成脚本（从9/30状态衔接：E=二院派遣, L=陈东升, 备=孙闪闪；自然周9/28-10/4跨月，备班保持孙闪闪）。
 
 生成脚本包含完整的排班数据、样式设置和三项审计验证。输出路径为 `/home/bobobears/下载/排班表_2026年X月.xlsx`。
 

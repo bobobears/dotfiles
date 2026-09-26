@@ -36,7 +36,7 @@ GitHub Releases 镜像：ghproxy.com 超时不可用，ghfast.top 可用且快
 §
 重型精神障碍患者库:~/smd_db/(smd.db+smd.py),新增INSERT patients(seq_no=max+1)+change_log留痕。seq_no管理序号,花名册呈现号导出重编勿混;.bak在~/下载/精神障碍管理/。只用本地模型。导出新增行须格式统一纳入外边框(make_table base_row回退)。国标14表已建库(forms_schema.py);每新增对象必填四表:5知情同意/6基本信息/7补充表/8随访记录,smd.py forms核查
 §
-医学知识库：~/private_db/knowledge/（db/knowledge.db + medical目录 + source原文），流程见 skill: medical-guideline-kb。四库：指南规范、医保监管规则(insurance_rules/codes)、2025药品目录(yb_drugs 4853)、安徽服务价格(皖医保发〔2025〕18/22号,yb_price_items 4313含单价)。
+公卫工作量统计表：权威文件 ~/private_db/knowledge/medical/工作量统计/YYYY年M月公卫工作量统计表.xlsx，录入后同步到 ~/下载/精神障碍管理/YYYY.M/ 同名文件。格式：序号|时间(m"月"d"日")|姓名|档案录入(份)|电话访视(次)|上门访视(次)|其他；新增患者记"其他"列"新增N份"，不编造未汇报条目
 §
 /etc/hosts: open.feishu.cn 固定IP已注释改用真实DNS（CDN IP轮换勿pin飞书）；weixin/deepseek仍固定。推送失败先查hosts；改文件用 pkexec sed -i。网关重启会中断运行中cron任务，修完手动补跑
 §
