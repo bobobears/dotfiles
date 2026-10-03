@@ -193,14 +193,14 @@ platforms:
     enabled: true
     channel_overrides:
       'o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat':  # Exact chat_id from gateway.log
-        model: deepseek-chat
+        model: deepseek-flash
         provider: deepseek
 ```
 
-Set via CLI:
+Set via CLI — quote the whole dotted path as ONE argument; the `@` and the dot inside the chat_id do not break it:
 ```bash
-hermes config set platforms.weixin.channel_overrides.'<exact_chat_id>'.model 'deepseek-chat'
-hermes config set platforms.weixin.channel_overrides.'<exact_chat_id>'.provider 'deepseek'
+hermes config set 'platforms.weixin.channel_overrides.<exact_chat_id>.model' deepseek-flash
+hermes config set 'platforms.weixin.channel_overrides.<exact_chat_id>.provider' deepseek
 ```
 
 **⚠️ `channel_overrides` does NOT support wildcards.** `'*':` will NOT match any chat. You must use the exact chat_id. Find the chat_id from gateway.log: `grep "inbound message.*weixin" ~/.hermes/logs/gateway.log | grep -oP "chat=\S+"`.
@@ -213,25 +213,32 @@ platforms:
     enabled: true
     channel_overrides:
       'o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat':
-        model: deepseek-chat
+        model: deepseek-flash
         provider: deepseek
         base_url: https://api.deepseek.com/v1  # Required if global model.base_url differs
 ```
 
-**⚠️ `hermes config set` breaks on chat_ids with `@` symbols.** The `@` character causes YAML parsing errors. Use Python directly instead:
+**✅ `hermes config set` DOES handle a chat_id containing `@` — quote the whole path and use the canonical key.** Verified on this host: `hermes config set 'platforms.weixin.channel_overrides.o9cq…@im.wechat.model' deepseek-flash` wrote the value, and `hermes config get platforms.weixin.channel_overrides` read it back correctly. The dotted path resolves against the **existing** nested key, so pass the entire path as one quoted argument.
+
+Two cautions:
+
+- Verified for **updating an override that already exists**. For a chat_id not yet present under `channel_overrides`, the `.` inside `@im.wechat` is a path separator like any other, so the write can land at `channel_overrides.o9cq…@im` → `wechat` → `model`. Create the first one with the Python route below, or `hermes config set` then `hermes config get` to confirm where it landed.
+- Never write the file with `patch`/`write_file`: the tool refuses `~/.hermes/config.yaml` outright ("Agent cannot modify security-sensitive configuration"). `hermes config set` goes through the round-trip writer, which also preserves comments and key order — `yaml.dump` does **not**.
+
+Python route for a NEW chat_id (`setdefault`, never a wholesale assignment — replacing the whole `channel_overrides` dict silently deletes every other override; `yaml.dump` also drops all comments, so back the file up first):
 
 ```python
 import os, yaml
-with open(os.path.expanduser('~/.hermes/config.yaml'), 'r') as f:
+p = os.path.expanduser('~/.hermes/config.yaml')
+with open(p) as f:
     config = yaml.safe_load(f)
-config['platforms']['weixin']['channel_overrides'] = {
-    'o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat': {
-        'model': 'deepseek-chat',
-        'provider': 'deepseek',
-        'base_url': 'https://api.deepseek.com/v1'
-    }
-}
-with open(os.path.expanduser('~/.hermes/config.yaml'), 'w') as f:
+overrides = config.setdefault('platforms', {}).setdefault('weixin', {}).setdefault('channel_overrides', {})
+overrides.setdefault('<exact_chat_id>', {}).update({
+    'model': 'deepseek-flash',
+    'provider': 'deepseek',
+    'base_url': 'https://api.deepseek.com/v1',
+})
+with open(p, 'w') as f:
     yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 ```
 
@@ -289,6 +296,7 @@ grep "OpenAI client created" ~/.hermes/logs/agent.log | grep weixin | tail -3
 - **After adding a new platform, restart the gateway**: `hermes gateway restart` picks up new `.env` variables. The setup wizard offers this automatically.
 - **Platform connected but replies not delivered**: If WebSocket/poll shows connected but outbound API calls fail with `NameResolutionError` / `Temporary failure in name resolution`, the system DNS server (often home router) is intermittently failing to resolve the platform's HTTP API domain. Fix with fallback public DNS; add `/etc/hosts` pins only for hard-blocked (Mode B) domains — never pin a CDN domain that resolves fine via public DNS, because stale pins break the platform silently when the CDN rotates IPs. Conversely, when a previously-working platform suddenly times out on connect, check `/etc/hosts` first: an old dead pin is a common cause; comment it out and let real DNS resolve. Full debugging workflow: `references/dns-troubleshooting.md`.
 - **Restarting the gateway interrupts in-flight cron agent runs**: jobs running when the process dies record `last_status=error` ("Interrupted by shutdown before terminal completion") and never deliver. Before restarting, note any job whose `last_run_at` is within the last few minutes; after restart + platform reconnect, re-run it (`cronjob_manage action=run` / `hermes cron run <id>`) and verify delivery actually landed — don't trust `last_status=ok` alone.
+- **`errcode=-2` is a GENERIC iLink failure code with two distinct causes — read the `errmsg`, never the number alone**: `session not ready: ret=-2 errcode=None errmsg=prepare failed — the user must send the bot a message first (or re-pair)` is a *missing session* (the peer must message the bot; no pacing knob helps), while `rate limited; cooldown active for …` is the throttle described below. Counting `errcode=-2` lines conflates them — a startup notice that fails on every gateway restart yields one `session not ready` line per restart and reads as a chronic rate limit across a week of logs. Group by text: `grep -o "iLink sendmessage[^—]*— [^,]*" ~/.hermes/logs/gateway.log | sort | uniq -c | sort -rn`.
 - **iLink throttles outbound sends (`errcode=-2`) — a Tencent-side cap, not a Hermes fault, and not fixable from here**: the third-party iLink bridge (`ilinkai.weixin.qq.com`) enforces an undocumented, low, unappealable frequency cap. A send that trips it gets `ret/errcode=-2` and the adapter opens a circuit breaker. **One real `-2` writes many ERROR lines** (`send failed … rate limited; cooldown active for 30.0s`): with the default `threshold=1`, every retry and the plain-text fallback inside the 30s window fail in-process without a request, each logging its own line. Assess severity by counting distinct cooldown starts, never by `grep -c`. Long replies amplify it — text chunks at `_SPLIT_THRESHOLD = 1800` (iLink cuts at ~2048) with only `send_chunk_delay_seconds` between chunks. Tunables live in `platforms.<name>.extra` and are read **once at adapter construction**, so a config change needs a gateway restart (reconnect reuses the instance). Diagnosis, the knob table, and the retry-amplification detail: `references/weixin-setup.md` §Rate Limiting.
 - **Send automation through the channel that publishes its quota — prefer Feishu over WeChat for cron/alert delivery**: because iLink's cap is invisible, gateway startup/shutdown notices and scheduled pushes fail intermittently while replies to a live user mostly succeed. Feishu's Messaging API documents its limits (1000/min, 50/s; 5 QPS per recipient chat) and does not throttle at this volume — a grep of its failures shows connection/DNS/certificate errors only, never `rate limit`. Retarget each job rather than leaving delivery to whatever the job was created from: `cronjob_manage action=update job_id=<id> deliver='feishu:<chat_id>'` (or `origin,all` → the explicit Feishu home channel). Feishu's own docs also advise avoiding the top of the hour and half-hour, when its load spikes — a reason to prefer 9:05/17:05 over 9:00/17:00 for scheduled pushes.
 - **A platform-parameter change is not live until the gateway restarts — and the agent cannot restart it from inside**: adapter tunables are read in `__init__` only, and the reconnect watcher calls `connect()` on the same instance, so waiting for a reconnect never picks up new config. Report a config edit as *pending restart*, tell the user to run `hermes gateway restart` from their own shell (see the restart pitfall above for the `kill -9 <PID>` + systemd auto-restart route), and never claim a tuned value is in effect while the old process is still running.
@@ -316,22 +324,7 @@ Verify with: `cat /proc/$(pgrep -f "hermes.*gateway" | head -1)/environ | tr '\0
 
 - **`platforms.weixin.model` config does NOT work**: The `platforms.<name>.model` block in config.yaml does NOT route the platform to a different model. `_resolve_session_agent_runtime()` does not read it. The working mechanism is `channel_overrides` with the exact chat_id: `platforms.weixin.channel_overrides[<exact_chat_id>].model`. Wildcards like `'*':` are NOT supported — only exact chat_id values match. Find the chat_id from: `grep "inbound message.*weixin" ~/.hermes/logs/gateway.log | grep -oP "chat=\S+"`.
 - **Qwen on LM Studio fails with jinja template error**: When the global model is set to Qwen via LM Studio (`http://127.0.0.1:1234/v1`), the model fails to render Hermes' prompt template: `Error rendering prompt with jinja template: "No user query found in messages."`. This is a model compatibility issue. Fix: set `channel_overrides` for the affected platform to use a cloud provider (DeepSeek, OpenAI, etc.). Full diagnostic: `references/qwen-lmstudio-jinja-template-error.md`.
-- **`hermes config set` breaks on chat_ids with `@` symbols**: WeChat user IDs contain `@` (e.g., `o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat`). Using `hermes config set platforms.weixin.channel_overrides.'o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat'.model 'deepseek-chat'` causes YAML parsing errors. The `@` character splits the key incorrectly. Fix: use Python directly to write the config:
-
-```python
-import os, yaml
-with open(os.path.expanduser('~/.hermes/config.yaml'), 'r') as f:
-    config = yaml.safe_load(f)
-config['platforms']['weixin']['channel_overrides'] = {
-    'o9cq803nqghkYPUiUWjMHdtAvMgo@im.wechat': {
-        'model': 'deepseek-chat',
-        'provider': 'deepseek',
-        'base_url': 'https://api.deepseek.com/v1'
-    }
-}
-with open(os.path.expanduser('~/.hermes/config.yaml'), 'w') as f:
-    yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-```
+- **Per-chat model override**: quote the whole dotted path — `hermes config set 'platforms.weixin.channel_overrides.<chat_id>.model' deepseek-flash`. A chat_id containing `@` and a dot works fine when the override already exists; for a brand-new chat_id, confirm where the write landed with `hermes config get`. `patch`/`write_file` are refused on `config.yaml` — always `hermes config set`. Detail: §Platform Model Override.
 - **Editing `_resolve_session_agent_runtime` in `run.py`: `runtime_kwargs` scope trap**: This 881KB file's `_resolve_session_agent_runtime()` creates `runtime_kwargs` on line ~3427 (`runtime_kwargs = _resolve_runtime_agent_kwargs()`). If you insert platform override code **before** this line and modify `runtime_kwargs` there, your modification is silently lost because `runtime_kwargs` is **reassigned** as a new variable on line 3427. The fix is to insert platform overrides **after** `runtime_kwargs = _resolve_runtime_agent_kwargs()` and **before** `runtime_model = runtime_kwargs.pop("model", None)`. A log line confirming the override fired is necessary but not sufficient — also check `agent.log` for `provider=custom` (wrong) vs `provider=deepseek` (correct) in the `OpenAI client created` line.
 
 - **Bundled platform plugins are NOT gated by `plugins.enabled`**: `config.yaml > plugins.enabled` does not control platform adapters. A plugin under `plugins/platforms/<name>/` auto-enables when `platforms.<name>.enabled: true` **and** its credentials are present — `is_connected` gates on the `extra` dict, which `_enable_plugin_platforms_from_env()` seeds from env vars in `gateway/config_env.py`. `plugins list` showing "not enabled" for a working platform (e.g. feishu) is therefore normal, not a fault. To see what the gateway really loaded, call the loader directly instead of guessing:

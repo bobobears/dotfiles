@@ -96,10 +96,24 @@ Already present after setup wizard completes.
 | Group messages ignored | Group policy defaults to `disabled`. QR-login bot identities (`...@im.bot`) typically can't receive group events at all |
 | `Another local Hermes gateway is already using this token` | Only one poller per token allowed. Stop other gateway first |
 | Send fails with `rate limited`, `errcode=-2` | Tencent-side throttle on the iLink bridge, not a Hermes fault. Raise the pacing/circuit knobs, and move scheduled notifications to Feishu — see §Rate Limiting |
+| Send fails with `session not ready: … errmsg=prepare failed`, `ret=-2` | **Not a throttle.** The bridge has no live session for that peer — the peer must send the bot a message first (or re-pair). Pacing knobs do nothing. See §Rate Limiting |
 
 ## Rate Limiting (`errcode=-2`)
 
-Log signature:
+**Discriminate first — `-2` is a generic iLink failure code, not a synonym for throttling.** Read the whole `errmsg`; the two causes need opposite responses:
+
+| Log text | Cause | Fix |
+|----------|-------|-----|
+| `iLink sendmessage session not ready: ret=-2 errcode=None errmsg=prepare failed — the user must send the bot a message first (or re-pair)` | No live iLink session for that peer — there is nothing to send into | The peer sends the bot a message, or you re-pair. No pacing knob helps |
+| `iLink sendmessage rate limited; cooldown active for 30.0s` | Tencent-side frequency cap (the rest of this section) | Pace slower / route automation elsewhere |
+
+Counting `errcode=-2` lines conflates the two: a startup or shutdown notice that fails on every gateway restart yields one `session not ready` line per restart, which reads as a chronic rate limit across a week of logs. Group by text instead:
+
+```bash
+grep -o "iLink sendmessage[^—]*— [^,]*" ~/.hermes/logs/gateway.log | sort | uniq -c | sort -rn
+```
+
+Log signature (throttle):
 
 ```
 [Weixin] send failed to=<id>: iLink sendmessage rate limited; cooldown active for 30.0s

@@ -68,7 +68,7 @@ description: 迎江区公卫平台数据提取——页面入口、筛选控件�
 ## 坑补充
 
 - **relay.py 端口冲突**：上次会话遗留的 relay 进程可能仍占着 8899（cwd 在 skill scripts 目录），新启动的会静默退出。先 `ss -tlnp | grep 8899` 查占用，kill 旧 PID 再启自己的；relay.log 写在**该进程 cwd**，别找错地方。
-- **get_death_date.js / check_services.js 的目标名单是硬编码的**（targets 数组 / `__NAME__` 占位符），每周跑前必须替换成本周新增人员。check_services.js 用 `sed "s/__NAME__/姓名/" check_services.js > cs_xxx.js` 生成临时文件再 fetch。
+- **get_death_date.js / check_services.js 的目标名单是硬编码的**（targets 数组 / `__NAME__` 占位符），每周跑前必须替换成本周新增人员。⚠️ **替换必须用 Python 的 `re.sub(...flags=re.S)`**，不要用 `sed 's|...|...|'`——sed 表达式里含 `\n` 或中文引号时容易报错，而 `> 临时.js` 重定向会先把目标文件截断成 0 字节，导致 relay fetch 到空 payload（HTTP 200 但 body 0 字节）、脚本静默不执行。生成临时文件后先 `wc -c` 确认非零再 fetch。
 - **终止原因栏可能填的是日期**（如吴仲伦 reason=2017年03-30），以 dEndingDate 为准；健康档案浏览器基本信息区的「终止日期」可交叉验证。
 - **健康体检表的列序**：…| 体检服务开始 | 下次服务 | 单位 | 医生 | … | **录入时间**。最后一列是滞后录入时间，可能晚于死亡日期——判断"死亡后服务"要看实际执行/随访日期列，别被录入时间误导。
 
