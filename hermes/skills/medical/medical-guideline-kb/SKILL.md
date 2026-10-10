@@ -156,7 +156,22 @@ imported_at: YYYY-MM-DD HH:MM:SS
 4. **官方原文受验证码保护时，请用户下载 PDF 后入库**——官方站（如 openstd 强制性国标）的"下载"按钮设图形验证码，**不要绕验证机制**；把链接给用户（他输验证码只需几秒），请他下载后放入 `~/下载/知识/`，再用 2a 的 PDF 流程提取。验证码拦截不是失败，是分工。
 5. **拿到正式文本后，回头核对之前基于自媒体的条目**：自媒体披露的具体数字常有错（实例：某公众号称养老护理员配比 1:4/1:5/1:12/1:20，GB 48013—2026 原文 9.2.7 为 1:5/1:10/1:15），用 patch 把旧条目的"无法证实"警告改写成逐条核对表
 
-已入库案例（政府站 WAF）：《医养结合机构管理指南（试行）》（国卫办老龄发〔2020〕15号，nhc 栏目 lljks/c100158；经 caogr.org 转载取全文，7 章完整）；《养老机构基本规范》GB 48013—2026（openstd 预览仅低清缩略+下载需验证码 → 请用户下载 PDF → pdftotext -layout 提取 15 页全文）
+已入库案例（政府站 WAF）：《医养结合机构管理指南（试行）》（国卫办老龄发〔2020〕15号，nhc 栏目 lljks/c00158；经 caogr.org 转载取全文，7 章完整）；《养老机构基本规范》GB 48013—2026（openstd 预览仅低清缩略+下载需验证码 → 请用户下载 PDF → pdftotext -layout 提取 15 页全文）
+
+### 2h. OFD 公文表格（竖排文字）解析 + 省级价格代码库 Excel
+市医保局备案函等公文常用 **OFD**（电子公文标准）。它不是 PDF，是 **ZIP 容器**（`unzip -l` 可见 `Doc_1/Page/Page_N.xml` + 印章图片）。纯文字层提取不可靠（竖排表格按 XML 顺序输出会串列），必须**坐标重建**。
+
+- **OFD 表格解析坑（竖排）**：
+  1. `TextObject` 带 `Boundary` 属性（x,y,w,h）+ 带命名空间前缀的 `TextCode`（如 `</ofd:TextCode>`），正则要带前缀
+  2. **竖排表格**：每列文字自上而下读，列与列之间从右往左——简单的"按 Y 分行、按 X 分列"会错
+  3. 列边界要用**坐标标定**（dump 某页 x 区间内的单元格 x 值，肉眼定列带），不要靠猜
+  4. **跨页行会被 y 过滤丢弃**（如序号 4/10 落在页尾/页首），要按序号连续性补齐
+  5. 竖排文字拼接顺序会乱（"吸入过敏原注射免疫治"+"疗"），名称/内涵字段建议**人工按 XML 顺序 + 语义校准**，不要追求全自动
+  6. 价格列通常干净（数字无串扰），可自动取
+- **交叉验证**：把 OFD 提取的**项目代码**拿去 Excel 省库 `基础项目全量库` 的"地方项目代码"列查——精确匹配的是省码，查不到的多为**地方自定义码**（如亲情陪产/上门服务费/床位费），属正常
+- **省级价格代码库 Excel**：`ah_price_db(sheet,seq,code,name,col1..col9,raw,imported_at)` 表存全量（4 sheet：基础项目全量库/立项指南/新增变更/停用）；code 列**优先取"地方项目代码"**（安徽本地执行码），col1/col2 存国家代码/名称备查；raw 存整行 JSON 兜底
+- **输出**：`yb_price_items`（docno=发文字号，12 行备案）+ `ah_price_db`（省库全量）+ `medical/医疗服务价格/<发文字号>.md`；原文（OFD+XLSX）备份到 `source/` 各自子目录
+- 入库脚本 `work/kb_import_2026price.py`（幂等：清 yb_price_items 该 docno + ah_price_db 重建 + documents 按 title+category 去重），用法：`python3 kb_import_2026price.py --dry` 先核对，再正式跑
 
 ## 关键脚本
 
@@ -187,7 +202,15 @@ python3 scripts/kb_import_ahprice.py --dry   # 先核对行数/单价，再正�
 python3 scripts/kb_import_ahprice.py
 ```
 
+`work/kb_import_2026price.py`（在 `~/private_db/knowledge/work/`，非 skill scripts/）— OFD 备案函 + 省级价格代码库 Excel 入库（→ yb_price_items + ah_price_db + md）。
+
+```bash
+python3 ~/private_db/knowledge/work/kb_import_2026price.py --dry
+python3 ~/private_db/knowledge/work/kb_import_2026price.py
+```
+
 依赖：`openpyxl`、`pdfplumber`（PDF 解析需要）、`python-docx` + LibreOffice `soffice`（.doc/.docx 价格表解析）。
+OFD 解析用 Python `zipfile` + `xml` 标准库（无额外依赖）；`openpyxl` 读 Excel 省库。
 
 ## 注意
 
@@ -197,6 +220,7 @@ python3 scripts/kb_import_ahprice.py
 - 查医保规则要点：`sqlite3 ~/private_db/knowledge/db/knowledge.db "SELECT batch,rule_name,seq,item_name,detect_logic,basis FROM insurance_rules WHERE item_name LIKE '%药品名%'"`；查该药全部医保代码：同上换 `insurance_codes.code`
 - 查某药是否在目录内/甲乙类/支付标准：`... "SELECT section,class_ab,seq_no,drug_name,pay_standard,remark FROM yb_drugs WHERE drug_name LIKE '%药品名%'"`（注意目录按通用名收录，剂型是★行；组合药如'二甲双胍恩格列净片(Ⅰ)'要带括号查）
 - 查医疗项目单价：`... "SELECT code,name,unit,price,note FROM yb_price_items WHERE is_abolish=0 AND name LIKE '%项目名%'"`（is_abolish=1 是已废止旧项目，可对照新旧；价格可能是'自主定价/市定价'）
+- 查省级代码库（地方执行码/项目内涵/计价单位/是否停用）：`... "SELECT code,name,col1,col2,col3 FROM ah_price_db WHERE sheet='基础项目全量库' AND name LIKE '%项目名%'"`（col1/col2=国家代码/名称；`sheet='停用'` 查已废止项）
 
 ## Safety & Security
 

@@ -27,6 +27,7 @@ mlops
 native-mcp
 note-taking
 obliteratus
+octop
 pixel-art
 pokemon-player
 productivity

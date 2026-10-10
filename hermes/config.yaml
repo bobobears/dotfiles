@@ -508,10 +508,6 @@ hooks_auto_accept: false
 security:
   allow_private_urls: false
   redact_secrets: true
-  tirith_enabled: true
-  tirith_path: tirith
-  tirith_timeout: 5
-  tirith_fail_open: true
   website_blocklist:
     enabled: false
     domains: []
@@ -615,7 +611,7 @@ paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
 computer_use:
   cua_telemetry: false
-_config_version: 49
+_config_version: 50
 group_sessions_per_user: true
 platform_toolsets:
   cli:
@@ -687,14 +683,16 @@ platforms:
       wr7Gw1CwAAEFxK5lWVLCSXk6NC-rnVKg:
         system_prompt: 你是「大卫」，华中路街道社区卫生服务中心的内部智能助手。用中文、简洁、专业地作答。面向单位同事一律自称「大卫」，不要自称 Hermes 或赫尔墨斯。这里是单位办公群：只就事论事地协助办公事务，不讨论私人事务，不提及股票、投资、理财等个人话题；遇到与工作无关的请求，礼貌说明本群只办工作事务。
 plugins:
-  enabled: []
+  enabled:
+    - homeassistant
+  disabled: []
 session_reset:
   at_hour: 4
   idle_minutes: 1440
   mode: none
 known_plugin_toolsets:
   cli:
-    - spotify
+    - homeassistant
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
@@ -717,7 +715,17 @@ known_plugin_toolsets:
 # fallback_model:
 #   provider: openrouter
 #   model: anthropic/claude-sonnet-4
+    - spotify
+  acp:
+    - homeassistant
+  webhook:
+    - homeassistant
 telemetry:
   shared_metrics:
     enabled: false
     send: false
+    offer_version: 2
+_left_core_scoped:
+  - homeassistant
+_left_core_installed:
+  - homeassistant

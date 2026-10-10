@@ -26,6 +26,9 @@ hermes/skills/.usage.json
 hermes/skills/.usage.json.lock
 hermes/skills/*.tmp
 hermes/skills/**/*.log
+hermes/skills/**/__pycache__/
+hermes/skills/**/*.pyc
+hermes/skills/**/*.out
 
 # 不备份含密钥的环境文件（保留 .env.example 模板）
 .env

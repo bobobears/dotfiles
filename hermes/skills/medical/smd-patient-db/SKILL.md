@@ -180,6 +180,15 @@ metadata:
   - **必须用 `exact`**：设 `line=240 lineRule=auto`（单倍）对这段**完全无效**（该段行高本来就不是段落级 spacing 决定的，渲染逐像素不变）；也不要靠改下页边距掩。
   - 验收：`pdfinfo` 页数=1；150dpi 下注释三行 y≈1529/1556/1583（行距 27px、字高 20px），末行底部 1602 < 可打印底 1612；表格左右竖线仍为 x=168/1077。
 
+## 体检备案（用户报"X 已体检，日期 M月D日"）
+
+- **落库 = `follow_up_records` 单独建条目**，不写进随访分类/其他字段。`remark` 列存备注 `已体检，体检日期YYYY-MM-DD`，`follow_up_date` 填体检日期，其余字段留空不臆造。
+- `follow_up_records` 原本**没有 remark 列**，2026-10 已在 forms_schema.py 加了幂等迁移（`ALTER TABLE follow_up_records ADD COLUMN remark TEXT`，与 record_no 迁移并列）；若旧库缺列，先 `python3 forms_schema.py` 建列再录。
+- 每人一条 change_log（action='add'，field='follow_up_records.remark'，new_value 摘要"体检备案: 已体检，体检日期… (follow_up_date=…, record_id=…)"）。
+- **体检备案只记两点：已体检 + 体检日期**（金医生明确），不填随访形式/分类等。
+- 查询体检备案：`SELECT f.follow_up_date, p.seq_no, p.name, f.remark FROM follow_up_records f JOIN patients p ON p.id=f.patient_id WHERE f.remark LIKE '已体检%' ORDER BY f.follow_up_date`。
+- 历史：2026-10-09 前15人体检曾误记在 `follow_up_category` 字段（值"2026年度体检"、日期2026-10-07、无留痕），已统一迁到 remark 字段并补 change_log；以后一律用 remark。
+
 ## 与月度工作量表的联动
 
 公卫工作量统计表（见 skill: medical-guideline-kb 的 2c 节）"其他"栏的"新增N份"= 本月新增管理对象，用户随后会报明细，按本流程录入；录入人数应与工作量表累计新增份数对得上。
