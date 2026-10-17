@@ -21,6 +21,8 @@ description: 医学指南/共识/规范类文章入库个人知识库。抓取�
 ├── medical/运营管理/                  # 医管/医院运营方法（如医防融合落地）
 ├── medical/医保监管/                  # 国家医保智能监管知识库/规则库（批次规则知识点）
 ├── medical/应急预案/                  # 医院应急预案/管理制度汇编
+├── medical/人事政策/                  # 人事/工资/离退休待遇政策（如国人部发〔2006〕60号）
+├── medical/信息化建设/                # 医院信息化/弱电智能化建设方案
 └── source/                            # 原文备份（HTML/PDF/XLSX/DOCX）
 ```
 
@@ -51,6 +53,8 @@ curl -sL --connect-timeout 10 \
 - 每章生成一个 md（frontmatter 齐全，正文引用块注明原文 PDF 备份路径），整本 PDF 拷一份到 `source/` 作原文备份
 - 批量入库用一次性脚本循环 INSERT documents，最后 SELECT COUNT(*) 验证
 - 已入库案例：2017《国家基本公共卫生服务规范（第三版）》拆为总览+13章共14条（id 7-20），文件 `medical/指南规范/2017-基本公卫规范第三版-*.md`
+- **官方站下载的 PDF（如 openstd 强制性国标）常由「方正飞翔」排版**：`pdftotext -layout` 能拿到完整正文，但**封面大字**（"中华人民共和国国家标准"等特殊字体）会输出控制字符（`\u0001\u0002…`）——用 `re.sub(r'[\x00-\x1f]', '', s)` 清掉；封面信息（标准号/发布实施日期/CCS/ICS/归口部门）从官方信息页补录，并在"文档说明"里注明"封面为特殊字体无法从文本层提取，据官方信息页补录"。别因为封面乱码就以为整个 PDF 无文字层而转去 OCR。
+- 浏览器下载会把文件名空格写成 `+`（如 `GB+48013-2026.pdf`）；备份进 `source/` 时改成规范名，用户目录里的原文件不必动。
 
 ### 2b. 图文笔记 / 文档截图型文章（正文全为图片）
 部分公众号文章正文是图片而非文字。先判类型：提取 `<img data-src>` 后用 `file` 看尺寸——`1080x1513` 等 A4 比例 = **文档页面截图**（如《医院各类应急预案汇编》118页预览28页）；`960x552` 等 = 图文卡片。处理：
@@ -60,6 +64,11 @@ curl -sL --connect-timeout 10 \
 - OCR 提示词：文档页用"这是一页XX文档。请完整提取图中所有文字，保持原有结构和层次（标题、条款编号、正文），不要总结、不要添加解释。"；图文卡片用"…保持原结构和层次，不要遗漏…只要原文。"
 - 偶发单张 timeout，单独重试即可
 - **入库前清理与标注**（重要）：① 剔除广告/引流行（"免费资料加微 xxx"、"点击阅读原文"）；② 页标记 `===== 第N页 =====` 转成 `### 第 N 页`；③ 加"文档说明"头写明原文总页数 vs 本库收录范围（如"仅公众号预览 28 页，非完整 118 页"），并提醒模板性质（署名"XX 医院"、名单为空，落地需填实际）
+- **OCR 引擎选择**：
+  - 图片数量 ≤ ~5 张且用户在场等待 → **DeepSeek API** 最快最稳（`api.deepseek.com/v1/chat/completions`，model=`deepseek-chat`，base64 内联图片，temperature=0.1，max_tokens=4000/页）。key 从 `/home/bobobears/.hermes/.env` 的 `DEEPSEEK_API_KEY` 读取（`source` 后 `os.environ` 取）。3 页 PDF ≈ 10 秒跑完
+  - 图片数量 > ~10 张或长时间无人值守 → **本地 LM Studio**（`http://127.0.0.1:1234/v1/chat/completions`，qwen3.8-27b@q8_0），每张 1-2 分钟，必须 `terminal(background=true, notify_on_complete=true)`
+  - **本地 `vision_analyze` 工具不可用**（GB10 上无 mmproj，返回 Error 500），不要依赖
+- **重复文档处理**：同一文件不同格式（PDF 扫描件 vs DOCX 文字版）到达时，先 `SELECT id, title FROM documents WHERE title LIKE '%关键词%'` 查重。若已有记录，**不重复 INSERT**——只补 `source/` 备份 + patch md 中的备份引用行（注明新增格式版本）
 
 ### 3. 生成 markdown
 frontmatter 字段（必须齐全）：
@@ -88,12 +97,26 @@ imported_at: YYYY-MM-DD HH:MM:SS
 - SQLite SELECT 确认记录
 - 报告入库摘要 + 文章核心价值要点
 
+### 2b1. DOCX / XLSX 直接入库（微信文件、通知、名单、花名册）
+用户常从微信收 .docx/.xlsx（通知、名单、花名册）要求入库。通用流程：
+- **备份优先**：先 `shutil.copy2` 原文到 `source/<专题子目录>/`（同批多文件放同一子目录，如 `source/2026-安徽省中医馆骨干人才培训/`），备份名规范化（去 `(1)` 等后缀，前缀年份）
+- **解析工具选择**：`python-docx`（`from docx import Document`）读段落+表格；openpyxl 读 xlsx。execute_code 的 kernel python 不一定带这两个库，**先试 import，失败退回标准库**：
+  - .docx 兜底 = `soffice --headless --convert-to txt:Text --outdir /tmp/xx <docx>` 后读 txt
+  - .xlsx 兜底 = `unzip -o` 后解析 `xl/sharedStrings.xml` + `xl/worksheets/sheet1.xml`（单元格 `t="s"` 查 sharedStrings 索引，`t="inlineStr"` 取 `<is><t>`，列号从 `r` 属性 A1 式引用换算），纯标准库无依赖
+- **名单/花名册类**：数据行按"首列为纯数字序号"过滤；md 里放完整表格 + 各市/各单位统计；**主动检索用户本人及本站相关行**（按单位名 LIKE）加粗标注，这是此类文件对用户的核心价值
+- **文件名口径 ≠ 实际范围**：名单文件名可能是某一市的口径（如"六安市…名单"）但实际含多市全量，**以表头标题和行内容为准**，md 里注明这个差异
+- 三件套与 frontmatter 同 PDF 流程（type 用 培训通知/培训名单/卫生政策 等按内容定）；同批多文件各插一条 documents 记录
+
 ### 2c. 月度工作量统计 Excel（精神障碍管理公卫）
+
+- **建表/追加的完整操作与样式基准见 `templates/月公卫工作量统计表模板.py`**（可直接运行生成当月空白表；追加数据走 smd-patient-db「完善月度工作量统计表」节的备份→load→填→save→读回→同步流程）
 用户每月给一份《YYYY年M月公卫工作量统计表.xlsx》（sheet 名可能滞后，以表内"统计月份"为准）。流程：
 - 列结构固定：序号/时间(Excel日期序列号, epoch=1899-12-30)/姓名/档案录入(份)/电话访视(次)/上门访视(次)/其他（含"新增N份"）
 - 三件套：①原文 xlsx 备份到 `source/YYYY-MM-精神障碍管理公卫工作量统计表-原文.xlsx`；②md 写入新分类目录 `medical/工作量统计/YYYY-MM-...md`（frontmatter type=工作量统计，含明细表+月度汇总）；③INSERT documents（category=工作量统计，file_path 用绝对路径）
 - 同时生成下月空白工作表：load_workbook 原文件 → sheet 改名"M月公卫工作量"、A2 改月份、清空数据行 B..G（保留 A 列序号与格式），存为 `medical/工作量统计/YYYY年M月公卫工作量统计表.xlsx`
 - 空单元格多为空格占位，md 中统一显示"—"；汇总按人拆分上门访视次数并累计新增患者份数
+- **新月份建表（无上月原文件时）**：参照上月文件样式重建（列宽 A6/B12/C13/D16/E13/F13/G18，行高 R1=30/R2=20/R3=36/数据行=22，标题 Arial 14b 蓝底 FFBDD7EE 跨 A1:G1，副题"统计月份：YYYY年M月"跨 A2:G2 宋体11，表头 Arial 11b 蓝底 FFD9EAF7+四边细边框，数据行序号/日期/姓名居中、姓名宋体、数字 Arial、日期 datetime+`m"月"d"日"`，预留 21 行空行带边框）。建在权威路径，同步到当月目录 `~/下载/精神障碍管理/YYYY.M/`。后续口头汇报按 smd-patient-db「完善月度工作量统计表」节追加（备份→load→填→save→读回→同步）
+- **"其他"栏简记**：新增档案记"新增N份"；纸质随访录入等非数值工作用文字记入"其他"栏（如"纸质随访录入1次"），不硬塞进数字列
 
 ### 2d. 国家医保智能监管知识库/规则库（批次规则表）
 用户给《国家医保智能监管知识库、规则库》压缩包：第一批～第二十批，每批 1 份 xlsx（2 个 sheet：`规则对应知识点明细` + `知识点对应药品代码`），个别批次是 PDF 表格。
@@ -154,6 +177,7 @@ imported_at: YYYY-MM-DD HH:MM:SS
 2. **从权威转载源取全文** — 国家级文件常被学会（如中国老年保健医学研究会 caogr.org）、地方政府站、行业媒体全文转载。抓取后**必核对**：发文字号、印发机关、日期、章节数/结尾是否完整
 3. **入库时在"文档说明"里写明**：原文链接 + 实际抓取源 + WAF 原因，避免日后误判为官网原文
 4. **官方原文受验证码保护时，请用户下载 PDF 后入库**——官方站（如 openstd 强制性国标）的"下载"按钮设图形验证码，**不要绕验证机制**；把链接给用户（他输验证码只需几秒），请他下载后放入 `~/下载/知识/`，再用 2a 的 PDF 流程提取。验证码拦截不是失败，是分工。
+   - **openstd 的在线预览不可用来提取正文**：`viewGbImg` 返回的是**多页缩略拼贴图**（15 页只给 4 张、内容互相重叠），OCR 出不来可靠文本——**发现是拼贴缩略就立刻停手**，直接走用户下载路径，不要在预览图上反复调 OCR。另：预览页请求必须带 `Referer: https://openstd.samr.gov.cn/bzgk/.../newGbInfo?hcno=...`，不带 Referer 只会返回标准信息页（无预览元素）。
 5. **拿到正式文本后，回头核对之前基于自媒体的条目**：自媒体披露的具体数字常有错（实例：某公众号称养老护理员配比 1:4/1:5/1:12/1:20，GB 48013—2026 原文 9.2.7 为 1:5/1:10/1:15），用 patch 把旧条目的"无法证实"警告改写成逐条核对表
 
 已入库案例（政府站 WAF）：《医养结合机构管理指南（试行）》（国卫办老龄发〔2020〕15号，nhc 栏目 lljks/c00158；经 caogr.org 转载取全文，7 章完整）；《养老机构基本规范》GB 48013—2026（openstd 预览仅低清缩略+下载需验证码 → 请用户下载 PDF → pdftotext -layout 提取 15 页全文）
@@ -172,6 +196,18 @@ imported_at: YYYY-MM-DD HH:MM:SS
 - **省级价格代码库 Excel**：`ah_price_db(sheet,seq,code,name,col1..col9,raw,imported_at)` 表存全量（4 sheet：基础项目全量库/立项指南/新增变更/停用）；code 列**优先取"地方项目代码"**（安徽本地执行码），col1/col2 存国家代码/名称备查；raw 存整行 JSON 兜底
 - **输出**：`yb_price_items`（docno=发文字号，12 行备案）+ `ah_price_db`（省库全量）+ `medical/医疗服务价格/<发文字号>.md`；原文（OFD+XLSX）备份到 `source/` 各自子目录
 - 入库脚本 `work/kb_import_2026price.py`（幂等：清 yb_price_items 该 docno + ah_price_db 重建 + documents 按 title+category 去重），用法：`python3 kb_import_2026price.py --dry` 先核对，再正式跑
+
+### 2i. 市级医疗服务价格目录（多 sheet Excel → aq_price_db）
+用户给安庆市医保局的《安庆市医疗服务价格目录》整本 xlsx（**31 个 sheet**）要求入库。与省级 2f 的规范整合通知（.doc 附件）不同，这是**多 sheet Excel**，主体是 `基础全量库`（~2160 数据行，按 9 大分类章节组织），另有 30 个专项 sheet（精神治疗/护理/超声检查/检验…，列结构各异）。
+
+- **独立表 `aq_price_db`**：不追加到省级 `ah_price_db`——市级与省级的列 schema 不同（市级是三级分档价格 + 专项 sheet 列结构不统一），混存会互相污染。`aq_price_db(sheet,code,name,nei,chu,unit,price1,price2,price3,jijia,raw,imported_at)`，`sheet` 列区分来源（`基础全量库` vs 各专项名）。共入库 5064→修正后 4868 条（专项 sheet 动态表头修正后）。
+- **基础全量库解析**：跳过总说明行、分类标题行（一~十一，如"七、中医及民族医诊疗类"）、重复表头行（表头在每个分类块重复出现，遇"项目名称"行重置列映射）；`△` = 非政府指导价（放开/新增/特需），共 459 项，存进价格列原样保留（不转数字）。
+- **专项 sheet 表头动态检测（核心坑）**：专项 sheet 在真正的表头行**上面有标题行**（如"精神治疗类医疗服务价格表"），表头**不在第 0 行**。解析前必须在前 15 行内搜索含 `项目名称` 或 `项目编码` 的行作为表头行，列映射相对该行的列下标计算。不动态检测会把标题行当表头 → code/name 全空。
+- **价格三档列映射（易错，必须验证）**：市级 sheet 的价格列名是 `市属三级医疗机构价格`/`市属二级`/`市属一级及以下`。映射必须是 **price3=三级、price2=二级、price1=一级及以下**（级别越高 price 档越大）。我第一版把 一级→price1 写反了，导致"心理治疗个体 72/77/86"被映射成 72=三级、86=一级（级别越高越便宜，明显错误）。**验证法**：抽一个项目看三档是否"级别越高越贵"（三级 > 二级 > 一级），反了就是映射写反。`find()` 的候选列表顺序也要把三级放最前，避免"三级"子串先被"一级及以下…三级"误命中。
+- **幂等脚本**：`work/kb_import_aq_catalog.py`（清 aq_price_db 全表重建 + 按 title+category 去重 documents + 备份原文到 `source/安庆市医疗服务价格目录2026.10.20/`）。先 `--dry` 核对各 sheet 行数，再正式跑。
+- **源路径回退**：脚本先查微信缓存原路径，不存在则回退到 `source/` 备份目录（微信缓存路径可能变化/被清理）；`shutil.copy2` 包 `try/except PermissionError` 处理只读备份。
+- **输出**：`aq_price_db` + `medical/医疗服务价格/2026安庆市医疗服务价格项目目录.md`（含分类章节、专项 sheet 概览、常用查询示例）
+- **查询**：`SELECT name,unit,price3,price2,price1 FROM aq_price_db WHERE sheet='精神治疗类' AND name LIKE '%心理治疗%'`；查"△"非指导价 `WHERE price1='△'`；查基础库某分类 `WHERE sheet='基础全量库' AND cat='七、中医及民族医诊疗类'`
 
 ## 关键脚本
 
@@ -209,6 +245,13 @@ python3 ~/private_db/knowledge/work/kb_import_2026price.py --dry
 python3 ~/private_db/knowledge/work/kb_import_2026price.py
 ```
 
+`work/kb_import_aq_catalog.py`（同上，在 `~/private_db/knowledge/work/`）— 安庆市医疗服务价格目录 31-sheet Excel 入库（→ aq_price_db + md，见 2i）。专项 sheet 表头动态检测 + 三级价格列映射。
+
+```bash
+python3 ~/private_db/knowledge/work/kb_import_aq_catalog.py --dry
+python3 ~/private_db/knowledge/work/kb_import_aq_catalog.py
+```
+
 依赖：`openpyxl`、`pdfplumber`（PDF 解析需要）、`python-docx` + LibreOffice `soffice`（.doc/.docx 价格表解析）。
 OFD 解析用 Python `zipfile` + `xml` 标准库（无额外依赖）；`openpyxl` 读 Excel 省库。
 
@@ -221,6 +264,7 @@ OFD 解析用 Python `zipfile` + `xml` 标准库（无额外依赖）；`openpyx
 - 查某药是否在目录内/甲乙类/支付标准：`... "SELECT section,class_ab,seq_no,drug_name,pay_standard,remark FROM yb_drugs WHERE drug_name LIKE '%药品名%'"`（注意目录按通用名收录，剂型是★行；组合药如'二甲双胍恩格列净片(Ⅰ)'要带括号查）
 - 查医疗项目单价：`... "SELECT code,name,unit,price,note FROM yb_price_items WHERE is_abolish=0 AND name LIKE '%项目名%'"`（is_abolish=1 是已废止旧项目，可对照新旧；价格可能是'自主定价/市定价'）
 - 查省级代码库（地方执行码/项目内涵/计价单位/是否停用）：`... "SELECT code,name,col1,col2,col3 FROM ah_price_db WHERE sheet='基础项目全量库' AND name LIKE '%项目名%'"`（col1/col2=国家代码/名称；`sheet='停用'` 查已废止项）
+- 查安庆市三级价格（price3=三级/price2=二级/price1=一级及以下）：`... "SELECT sheet,name,unit,price3,price2,price1 FROM aq_price_db WHERE name LIKE '%项目名%'"`（`sheet='基础全量库'` 是市级全量目录；`price1='△'` 查非政府指导价项）
 
 ## Safety & Security
 

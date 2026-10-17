@@ -22,14 +22,30 @@ metadata:
 - 用户需要创建/编辑 **Excel 表格**（.xlsx）
 - 用户提到"报告"、"文档"、"表格"、"报表"、"排版"等办公文档关键词
 - 用户需要在报告中同时包含文字和表格数据
+- 用户要写**红头公文**（请示/报告/函/通知等上报卫健、财政等部门的正式公文）→ 不走本技能 JSON 脚本，直接用 [templates/gongwen_template.py](templates/gongwen_template.py) 按 GB/T 9704 排版
 
 ## 快速入门
 
 ### 前置条件
 
+本机 Python 环境受 PEP 668 保护，**禁止裸 `pip install`**。统一用 uv 临时环境运行脚本：
+
 ```bash
-pip install python-docx openpyxl
+uv run --with python-docx --with openpyxl python ~/.hermes/skills/productivity/hybrid-office/scripts/create_word.py output.docx <<'JSON'
+{ ... }
+JSON
 ```
+
+一次性小脚本（如公文生成）同理：`uv run --with python-docx python make_report.py`。
+
+### 公文场景分流（重要）
+
+本技能的排版规范是**企业蓝色风格**（Calibri、深蓝表头、隔行交替色），只适用于普通办公文档。
+用户（基层卫生单位行政）经常需要**红头公文**（请示、报告、函、通知等上报卫健/财政部门的正式公文），必须按 GB/T 9704《党政机关公文格式》排版，与本技能模板不兼容，走独立模板：
+
+- 模板位置：[templates/gongwen_template.py](templates/gongwen_template.py)（python-docx 脚本骨架）
+- 格式要点：A4 页边距上3.7/下3.5/左2.8/右2.6cm；标题二号小标宋居中；正文三号仿宋、首行缩进2字符、28磅行距；一级标题黑体、二级楷体；落款右对齐；页码“— n —”
+- **金额/人数/进展表述必须与用户确认后再落稿**：公文中的资金数额、申请人数、项目进展（是否已备案/到岗）一旦写错，上报后无法挽回；拿不准就按用户口头给的口径写，并在交付时明确列出需确认的数字项
 
 ### 核心脚本路径
 
