@@ -22,7 +22,10 @@ description: 医学指南/共识/规范类文章入库个人知识库。抓取�
 ├── medical/医保监管/                  # 国家医保智能监管知识库/规则库（批次规则知识点）
 ├── medical/应急预案/                  # 医院应急预案/管理制度汇编
 ├── medical/人事政策/                  # 人事/工资/离退休待遇政策（如国人部发〔2006〕60号）
-├── medical/信息化建设/                # 医院信息化/弱电智能化建设方案
+├── medical/信息化建设/                # 医院信息化/弱电智能化建设方案、电子病历与版式标准
+├── medical/中医药/                    # 中医课件：经方/耳穴/皮肤病等基层实用技术
+├── medical/医疗服务价格/              # 省/市级价格目录与规范整合通知
+├── medical/工作量统计/                # 月度公卫工作量表（md + xlsx）
 └── source/                            # 原文备份（HTML/PDF/XLSX/DOCX）
 ```
 
@@ -48,13 +51,19 @@ curl -sL --connect-timeout 10 \
 ### 2a. PDF 文件入库（本地附件/官方文件）
 用户直接给 PDF 时（如《国家基本公共卫生服务规范》整本文件）：
 - `pdfinfo` 确认页数；`pdftotext -layout <pdf> out.txt` 提取（先抽几页验证有文字层，扫描件才走 OCR）
-- 长文档按章节拆分入库更实用：用 form feed (`\f`) 切块 + 章节标题行匹配定位边界
-- 清理：去独立页码行（纯数字）、压缩连续空行
+- 长文档按章节拆分入库更实用：用 form feed (`\f`) 切块 + 章节标题行匹配定位边界。**定位边界别靠猜行号**：全文按 `\f` 分页后逐页打印首行 + 特征标记（`【B】`/`第X章`/`附件`/目录点线），一眼看出页↔章映射，再按页区间 `grab(a,b)` 取。整本一份、或「正文+附件」两份都行——附件是查询目录（病种/药品清单）时单列一条更实用
+- 清理：**只删页码，绝不无差别删"纯数字行"**——表格里的数字（条款数量 16/15/15/10/56、评级门槛 ≥95%、序号）本身常常独立成行或落在行尾，按"纯数字"一刀切会让表格数据**静默消失且不报错**。页码只有两个特征：① 整行只有数字**且前导空格 ≥10**（`re.fullmatch(r'\s{10,}\d{1,3}', ln)`）② 位于该页最后 3 行内。清理完必须回看含数字的表格确认数据还在
+- **无边框表格的 PDF**（如《社区卫生服务中心服务能力标准》的"能力条款｜评价要点"）：`pdfplumber.extract_tables()` 返回 **0 张表**——只有文字定位、没有框线时它识别不出表格，不要据此判定"这 PDF 没表格"。改用 `pdftotext -layout` 保留列位置，并把正文**整体包进 ```text 代码块**：markdown 会把连续空格压成一个，不包代码块则两列表格错位、条款号被拆成"基本功/能"
+- 表格列内换行会让左列折成两行（`1.1.1 基本功` + `能`）——这是 pdf 单元格折行，**内容完整就别硬修**，保留 layout 原样比强行拼回更不容易丢字
 - 每章生成一个 md（frontmatter 齐全，正文引用块注明原文 PDF 备份路径），整本 PDF 拷一份到 `source/` 作原文备份
 - 批量入库用一次性脚本循环 INSERT documents，最后 SELECT COUNT(*) 验证
 - 已入库案例：2017《国家基本公共卫生服务规范（第三版）》拆为总览+13章共14条（id 7-20），文件 `medical/指南规范/2017-基本公卫规范第三版-*.md`
 - **官方站下载的 PDF（如 openstd 强制性国标）常由「方正飞翔」排版**：`pdftotext -layout` 能拿到完整正文，但**封面大字**（"中华人民共和国国家标准"等特殊字体）会输出控制字符（`\u0001\u0002…`）——用 `re.sub(r'[\x00-\x1f]', '', s)` 清掉；封面信息（标准号/发布实施日期/CCS/ICS/归口部门）从官方信息页补录，并在"文档说明"里注明"封面为特殊字体无法从文本层提取，据官方信息页补录"。别因为封面乱码就以为整个 PDF 无文字层而转去 OCR。
 - 浏览器下载会把文件名空格写成 `+`（如 `GB+48013-2026.pdf`）；备份进 `source/` 时改成规范名，用户目录里的原文件不必动。
+- **PPT 转出来的 PDF**（`pdfinfo` 里 `Creator: WPS 演示`、页面 `960x540` 即 16:9）文字层极稀疏：89 页可能只有 ~1.8 万字符，**大量页是整页图片（病历扫描、检验单、处方照片）**。开工前先量化，不要默认它是纯文字文档：
+  - 按 `\f` 切页统计每页 `len(strip())`：**0 字符页 = 纯图片页**；`pdfimages -list | tail -n +3 | wc -l` 数图片总数（89 页课件可能有 380+ 张图）
+  - 文字页直接入库，图片页 OCR 后按 `===== 第 N 页 =====` → `### 第 N 页` 合入，并在"文档说明"里写明哪些页是图片
+  - 只有少数关键页（≤5）需要看内容时，用 `vision_analyze` 直接看，不必起 OCR 服务
 
 ### 2b. 图文笔记 / 文档截图型文章（正文全为图片）
 部分公众号文章正文是图片而非文字。先判类型：提取 `<img data-src>` 后用 `file` 看尺寸——`1080x1513` 等 A4 比例 = **文档页面截图**（如《医院各类应急预案汇编》118页预览28页）；`960x552` 等 = 图文卡片。处理：
@@ -64,11 +73,21 @@ curl -sL --connect-timeout 10 \
 - OCR 提示词：文档页用"这是一页XX文档。请完整提取图中所有文字，保持原有结构和层次（标题、条款编号、正文），不要总结、不要添加解释。"；图文卡片用"…保持原结构和层次，不要遗漏…只要原文。"
 - 偶发单张 timeout，单独重试即可
 - **入库前清理与标注**（重要）：① 剔除广告/引流行（"免费资料加微 xxx"、"点击阅读原文"）；② 页标记 `===== 第N页 =====` 转成 `### 第 N 页`；③ 加"文档说明"头写明原文总页数 vs 本库收录范围（如"仅公众号预览 28 页，非完整 118 页"），并提醒模板性质（署名"XX 医院"、名单为空，落地需填实际）
-- **OCR 引擎选择**：
-  - 图片数量 ≤ ~5 张且用户在场等待 → **DeepSeek API** 最快最稳（`api.deepseek.com/v1/chat/completions`，model=`deepseek-chat`，base64 内联图片，temperature=0.1，max_tokens=4000/页）。key 从 `/home/bobobears/.hermes/.env` 的 `DEEPSEEK_API_KEY` 读取（`source` 后 `os.environ` 取）。3 页 PDF ≈ 10 秒跑完
-  - 图片数量 > ~10 张或长时间无人值守 → **本地 LM Studio**（`http://127.0.0.1:1234/v1/chat/completions`，qwen3.8-27b@q8_0），每张 1-2 分钟，必须 `terminal(background=true, notify_on_complete=true)`
-  - **本地 `vision_analyze` 工具不可用**（GB10 上无 mmproj，返回 Error 500），不要依赖
+- **OCR 引擎选择**（按本机实测）：
+  - 少量图片 / 需要先判断页面类型（≤10 张）→ **`vision_analyze` 工具**：它把图直接读进自己的上下文，不依赖任何本地服务，用来抽样确认"这页是病历、检验单、处方还是纯装饰"最快
+  - 大量图片且长时间无人值守 → **本地 llama-server**（`http://127.0.0.1:1234/v1/chat/completions`），后台跑 + 进度文件 + `notify_on_complete=true`
+  - 备选 → **DeepSeek API**（`api.deepseek.com/v1/chat/completions`，model=`deepseek-chat`，base64 内联，temperature=0.1，max_tokens=4000/页），key 在 `~/.hermes/.env` 的 `DEEPSEEK_API_KEY`，3 页 ≈ 10 秒
+- **发图片前先查本地端口的多模态能力**：`GET http://127.0.0.1:1234/v1/models` 看 `capabilities` 是否含 `multimodal`。llama-server 启动时**没带 `--mmproj`** 就只报 `["completion"]`，此时发图片会返回 **HTTP 500**——这是能力没加载，不是模型坏了。修法：**另起一个临时实例**，不动正在跑的主服务：
+  ```bash
+  ~/.local/share/llama.cpp/llama-server \
+    -m ~/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf \
+    --mmproj ~/models/qwen3.8-27b/mmproj-Qwen3.8-27B-BF16.gguf \
+    --host 127.0.0.1 --port 1235 -a qwen3.8-ocr -c 16384 -np 1 --fit on -fa on
+  ```
+  用 `terminal(background=true)` 起（`nohup`/`setsid` 会被守卫拒），约 40 秒就绪；选 Q4_K_M 而非 Q8_0 省内存。请求里 model 填 `qwen3.8-ocr`，OCR 跑完 kill 掉临时实例
+- **本地 OCR 吞吐**：复杂页（检验单、多列表格）Q4_K_M 约 **100 秒/页**，31 页 ≈ 50 分钟——必须后台 + 每页写进度文件，不要前台干等；识别质量对印刷体检验单很好（项目/数值/单位/参考区间都能还原）
 - **重复文档处理**：同一文件不同格式（PDF 扫描件 vs DOCX 文字版）到达时，先 `SELECT id, title FROM documents WHERE title LIKE '%关键词%'` 查重。若已有记录，**不重复 INSERT**——只补 `source/` 备份 + patch md 中的备份引用行（注明新增格式版本）
+- **同一文件被重复发来**：微信会把同一文件缓存到不同的 `native-inputs/<hash>/` 目录，**文件名相同不代表是同一份**（两个路径下都是 `doc_xxx_标题.pdf`）。用 `sha256sum <新文件> <source/里已备份的那份>` 对比确认；哈希一致就直接回"已入库（ID xxx），本次无操作"，不要再解析/OCR 一遍。查重以哈希为准，不以文件名为准
 
 ### 3. 生成 markdown
 frontmatter 字段（必须齐全）：
@@ -170,6 +189,23 @@ imported_at: YYYY-MM-DD HH:MM:SS
   （附件清单硬编码在 DOCS 里；新增批次时往 DOCS 加条目即可。下载偶发超时，脚本内置 3 次重试+失败跳过）
 - **与药品目录/规则库打通**：`yb_price_items`(项目单价) × `yb_drugs`(药品甲乙类) × `insurance_rules`(监管限制)，按名称 LIKE 联查
 
+### 2h. SPA 知识库站点（hash 路由 + 静态 data JS）
+
+**识别特征**：URL 形如 `plugin.php?id=xxx:index#/route`；curl 只拿到几 KB 空壳（无正文），浏览器 `document.body.innerText` 却有内容。
+
+**破法：抓 window 全局数据文件，不爬页面**
+
+1. 浏览器打开目标页，读资源列表里的 `/data/` JS：
+   ```python
+   js("performance.getEntriesByType('resource').map(r=>r.name).filter(n=>/\\/data\\//.test(n))")
+   ```
+   典型分层：`data/kb.js`（页面配置/代码）、`data/library.js`（目录树+部分正文 `kw`）、`data/docs/<id>.js`（**完整正文**）、`data/evidence/*.js`（统计）
+2. 直接 curl 下载这些 `.js`（静态资源，无需登录）
+3. 解析：文件形如 `window.TCM_DOCS=window.TCM_DOCS||{};window.TCM_DOCS["id"]={...}` —— **必须用正则 `window\\.XXX\\["<id>"\\]\\s*=\\s*` 定位后再 json.loads**；从头找第一个 `=` 会拿到 `||{}` 片段直接失败
+4. 正文两种形态要同时兼容：标准类 `items[].text`；手册类 `items[].fields[{label,text}]`
+
+**坑**：`#/item/<itemId>` 会 404，真实路由是 `#/item/<docId>/<itemId>`；目录页 `kw` 可能为空而正文在 `docs/*.js`，别只信 library.js；教程/病例详情可能未开放（只有目录标题），要区分“目录可抓”与“正文可抓”。原始 JS 备份到 `source/<站点名>-原始数据/`。
+
 ### 2g. 政府官网文章（WAF 反爬，如 nhc.gov.cn）
 国家卫健委官网（nhc.gov.cn）用 icloudwaf：**curl 返回 HTTP 412**（JS 挑战页），**headless 浏览器返回 title="🐴"、HTML 仅57字节的空页**；`web_extract` 报 Failed to fetch；archive.org 国内多超时。绕行路径：
 
@@ -208,6 +244,29 @@ imported_at: YYYY-MM-DD HH:MM:SS
 - **源路径回退**：脚本先查微信缓存原路径，不存在则回退到 `source/` 备份目录（微信缓存路径可能变化/被清理）；`shutil.copy2` 包 `try/except PermissionError` 处理只读备份。
 - **输出**：`aq_price_db` + `medical/医疗服务价格/2026安庆市医疗服务价格项目目录.md`（含分类章节、专项 sheet 概览、常用查询示例）
 - **查询**：`SELECT name,unit,price3,price2,price1 FROM aq_price_db WHERE sheet='精神治疗类' AND name LIKE '%心理治疗%'`；查"△"非指导价 `WHERE price1='△'`；查基础库某分类 `WHERE sheet='基础全量库' AND cat='七、中医及民族医诊疗类'`
+
+### 2j. PPT 课件（幻灯片 PDF，含大量图片页）
+
+WPS 演示/PowerPoint 导出的 PDF（如 960×540 或 16:9 尺寸）往往是「文字层 + 扫描图片」混合：
+
+**判类型**：`pdftotext -layout` 后按 `\f` 分页，统计每页字符数——**<40 字符的页 = 纯图片页**（病历、检验单、处方、影像）。
+
+**处理**：
+1. 文字页直接提取（保留页码标记 `**P42**` 便于对照）
+2. 图片页 `pdftoppm -f a -l b -r 120 -png` 渲染 → 逐页 OCR
+3. **OCR 服务坑**：主 `llama-server`（1234，纯文本模型）未加载 mmproj，`/v1/models` 的 capabilities 只有 `completion`，发图片会 HTTP 500。需**另起临时实例**：
+   ```bash
+   terminal(background=true, command="~/.local/share/llama.cpp/llama-server -m ~/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf --mmproj ~/models/qwen3.8-27b/mmproj-Qwen3.8-27B-BF16.gguf --host 127.0.0.1 --port 1235 -a qwen3.8-ocr -c 16384 -np 1 --fit on -fa on")
+   ```
+   就绪判据：`/v1/models` 返回 `capabilities: ["completion","multimodal"]`（约 40 秒加载）。**用完 kill 释放内存**（Q4_K_M 约 17GB）。
+4. 每页约 50-160 秒，31 页约 40 分钟 → 必须后台跑 + `notify_on_complete=true`，脚本写进度文件供轮询
+5. **超时重试用“切图”**（关键经验）：复杂版式（左图+右表）单页易超时（约 168 秒返回 0 字）。把图用 PIL 切成**左右两半**（各约 800×900）分别 OCR，再拼回 `[左半]/[右半]`。切图后成功率显著提升，且文字更完整（实测 11 页超时页全部补回）
+6. `vision_analyze` 也可用，但逐页调用会把图灌进上下文，**仅用于抽检质量**（判断某页是否真有文字），不用来批量
+7. **杀进程勿用 `pkill -f "port 1235"`**——会匹配到执行命令的 shell 自身而自杀；用启动时返回的 PID `kill <pid>`
+
+**病历类提示词**：`这是一页医学讲座PPT的截图，内容可能是病历、检验报告单、处方或影像图片。请完整提取图中所有可见文字内容，包括姓名栏（若有遮挡可写"涂马赛克"）、检验项目与数值、处方药物与剂量、日期等。保持原有结构。不要总结、不要添加解释。若某区域无文字，用[图片]标注。`
+
+**入库结构**：说明头（课件信息+结构+OCR 覆盖率）+ 按页码顺序合并文字页/图片页 + 病案部分标注"（图片页）"。已入库案例：《浅谈经方临床应用》（89 页，51 页文字层 + 31 页病案扫描件 OCR）。
 
 ## 关键脚本
 
@@ -259,7 +318,10 @@ OFD 解析用 Python `zipfile` + `xml` 标准库（无额外依赖）；`openpyx
 
 - 本机网络受限：DNS 可能不可用，必要时用 `host <domain> 8.8.8.8` 解析 IP + `--resolve` 直连
 - 微信文章大（3-4MB），正文提取后通常 8-12K 字符
-- 用户偏好：入库后报告文章核心价值（对金医生工作有用的要点）
+- 用户偏好：入库后报告文章核心价值（对金医生工作有用的要点）；但**极简类提问（有/没有）不要写成长报告**
+- **任务收尾必须明确说一句结论**（金医生要求「以后结束了，说一句」）：回复末尾写「**已完成**」「**入库结束**」这类明确语句，不要让他自己判断是否已经收尾
+- 用户只发文件/链接、不写字或只写"纳入知识库管理" → **直接走流程入库**，不要先问"要不要入库"
+- 用户问"进展如何"却没点名文件 → **先确认对象**（回看上一轮处理的是哪篇、他最近一次发的是哪个），不要拿目录里最新修改的文件当答案；答错对象他要多花一轮纠正
 - 查医保规则要点：`sqlite3 ~/private_db/knowledge/db/knowledge.db "SELECT batch,rule_name,seq,item_name,detect_logic,basis FROM insurance_rules WHERE item_name LIKE '%药品名%'"`；查该药全部医保代码：同上换 `insurance_codes.code`
 - 查某药是否在目录内/甲乙类/支付标准：`... "SELECT section,class_ab,seq_no,drug_name,pay_standard,remark FROM yb_drugs WHERE drug_name LIKE '%药品名%'"`（注意目录按通用名收录，剂型是★行；组合药如'二甲双胍恩格列净片(Ⅰ)'要带括号查）
 - 查医疗项目单价：`... "SELECT code,name,unit,price,note FROM yb_price_items WHERE is_abolish=0 AND name LIKE '%项目名%'"`（is_abolish=1 是已废止旧项目，可对照新旧；价格可能是'自主定价/市定价'）

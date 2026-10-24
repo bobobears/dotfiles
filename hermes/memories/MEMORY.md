@@ -18,7 +18,7 @@ HRMS 薪酬参数计算公式：病/事假扣款日工资基数 = (基本工资+
 §
 HRMS 薪酬手动修改优先规则：基本工资、四项补助（行政/岗位/技能/工龄）、社保、公积金一旦手动修改，新建工资表时优先沿用上月手动值，不从薪酬参数重新计算。结算考勤时不覆盖 deduct_social、deduct_housing、deduct_other 手动值。
 §
-HRMS 返聘人员不计工龄：calc_employee_allowances 中 employment_type='返聘' 时 allow_seniority 强制为 0。
+HRMS 返聘人员不计工龄：employment_type='返聘' 时 allow_seniority=0。
 §
 HRMS 考勤结算小数问题：api_batch_settle_attendance 中所有考勤数量用 round(float()*rate, 2) 而非 int()，避免 0.5 次外勤被截断为 0。
 §
@@ -43,3 +43,5 @@ Hermes web 后端=tavily(密钥在.env)，firecrawl 作 keyless 兜底；排障�
 本机桌面=xrdp 会话 DISPLAY :10（2560x1440），单屏(allow_multimon=false)。细节见 skill x11-window-recovery
 §
 本机 GB10 统一内存 121GiB(CPU/GPU 共用)，nvidia-smi 报 N/A。内存耗尽时加载 30GB 模型 → NVRM NV_ERR_NO_MEMORY → 整机硬挂(无 systemd 关机流程)。本地推理已弃 LM Studio，改独立 llama-server.service(user)：127.0.0.1:1234，别名 qwen3.8-27b@q8_0，模型 ~/models/qwen3.8-27b，引擎 ~/.local/share/llama.cpp，经 llama-run.sh 预检(<55GiB 拒载 exit78)。内存看门狗 mem-guard.timer 每分钟：<55G 飞书告警/<30G 停 llama-server/<10G 杀最大进程。cgroup MemoryMax 拦不住 GPU 分配(权重不计 memcg)。Hermes 桌面 App 后端曾膨胀到 86-90GB 被 OOM 连杀。细节见 skill lm-studio
+§
+任务结束时须明说一句结论

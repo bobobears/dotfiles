@@ -319,6 +319,42 @@ curl -s "http://push2.eastmoney.com/api/qt/stock/get?secid=0.002966&fields=f43,f
 
 **⚠️ Note:** HTTPS to push2 may be DNS-blocked by some routers (e.g. Xiaomi 192.168.31.1). Use HTTP or `--resolve` workaround (see below). For batch stock queries (your watchlist), the `secids` parameter uses the same market prefix rules: 上海 stocks use `1.`, 深圳 stocks use `0.`, 创业板 use `3.`.
 
+### ⚠️ 字段顺序：每个接口各不相同（最高频的数据事故）
+
+同一个「收盘价」在不同接口里位置完全不同。**按猜的索引解析不会报错，只会把行情读反**，而且读反后的数字看着都很合理，肉眼难以察觉。引用前先打印一行原始数据对照，再继续。
+
+**新浪 `hq.sinajs.cn` 是「今开、昨收、现价、最高、最低」，不是「现价、昨收、…」**：
+
+| 索引(0-based) | 字段 |
+|:---:|:---|
+| 0 | 名称 |
+| 1 | **今开** |
+| 2 | 昨收 |
+| 3 | **现价 / 收盘** |
+| 4 | 最高 |
+| 5 | 最低 |
+| 6 / 7 | 买一 / 卖一 |
+| 8 | 成交量（股） |
+| 9 | 成交额（元） |
+| 30 / 31 | 日期 / 时间 |
+
+```python
+p = line.split('="')[1].rstrip('";').split(',')
+name = p[0]
+open_, prev_close, cur, high, low = (float(x) for x in p[1:6])
+chg = (cur / prev_close - 1) * 100
+```
+
+**把索引 1 当现价的后果**：一个收盘 3690.48、涨 0.89% 的交易日会被读成「今开 3623.57、跌 0.94%」，于是一根大阳线被复盘成「全线下跌」。腾讯 `qt.gtimg.cn`（`~` 分隔，索引 3=现价、4=昨收、5=今开）与东财 push2（`f2`=现价）的偏移量又各不相同 —— 跨源比对时逐源核对索引，**不要复用上一份代码的偏移量**。
+
+**自查信号（出现任一就必须回头验字段，不要继续写结论）**：
+1. 指数方向与板块/涨跌家数方向相反；
+2. 「今开 − 昨收」算出的幅度与接口给的涨跌幅对不上；
+3. 现价落到最高/最低区间之外，或「现价」恰好等于某个整点时刻的开盘价；
+4. 新闻复盘（深V反转/绝地反击）与你的数据结论（全线下跌）矛盾 —— **此时优先怀疑解析，不要怀疑新闻**，用同一份原始串重新对齐索引。
+
+复盘一整个交易日时，至少交叉两个源（新浪 `hq.sinajs.cn` + 腾讯 `ifzq`/`push2`），两源收盘价一致再下笔。
+
 ### ⚠️ API Availability (tested on this environment)
 
 | API | Status | Notes |
@@ -330,9 +366,12 @@ curl -s "http://push2.eastmoney.com/api/qt/stock/get?secid=0.002966&fields=f43,f
 | 东方财富 push2 (HTTP) | ✅ Works | HTTP works; HTTPS may be DNS-blocked by router |
 | 东方财富 push2 (HTTPS) | ⚠️ DNS-blocked | Router DNS blocks subdomains; bypass with `--resolve` via 114 DNS |
 | 东方财富 datacenter | ✅ Works | F10 dividends + **大宗交易** (see `references/dzjy-block-trade-api.md`) |
+| 腾讯板块排行 pt/getRank | ⚠️ 仅参考 | `direct=up/down` **并不按涨跌幅排序**（实测两向返回同一批），须取全量（offset 0/30 各拉一次）后在 Python 里按 `zdf` 自己排；且其 `zdf` 可能与当日指数方向矛盾（缓存/口径不同），当作「收盘复盘」用之前先跟指数、涨跌家数交叉验证，矛盾就以指数为准 |
+| 东方财富 push2 高频调用 | ⚠️ 会限流 | 连续多次调用后返回 `HTTP:000` + 空 body（**不是 DNS 问题，别去改 hosts 或加 --resolve**）。停几秒重试，或直接切腾讯 `qt.gtimg.cn` / 新浪 `hq.sinajs.cn` 取同一指标 |
 | 搜狐 Sohu K-line | ❌ Dead | API deprecated |
-| 腾讯 ifzq K-line | ❌ Bad params | API format changed |
-| 新浪 K-line | ❌ Not found | Deprecated |
+| 腾讯 ifzq K-line | ✅ Works | `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz002039,day,,,150,qfq`；返回 `data.<code>.qfqday`，**前复权**，第 4 个参数=条数 |
+| 新浪 K-line | ✅ Works | `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=sz002039&scale=240&ma=no&datalen=30`（**不复权**，volume 单位为股） |
+| 新浪实时 | ✅ Works | `https://hq.sinajs.cn/list=sz002039`，需 `Referer: https://finance.sina.com.cn`，响应 **GBK** → `iconv -f gbk -t utf-8` |
 | 财联社新闻搜索 | ❌ Dead | API returns empty, needs auth |
 | 同花顺新闻搜索 | ❌ Unreliable | DNS resolution fails or 404 |
 | 百度股票搜索 | ❌ Unreliable | Returns empty JSON |
@@ -356,6 +395,39 @@ curl -sL --max-time 10 -4 "https://datacenter.eastmoney.com/web/api/data/v1/get?
 **Must use** `-4` (IPv4) and `--resolve` together. The `--resolve` flag accepts `hostname:port:address` and hardcodes the IP for that host, bypassing the system DNS. Pick any resolved IP for the target subdomain — they're load-balanced.
 
 See `references/dzjy-block-trade-api.md` for the full block trade (大宗交易) data API using this technique.
+
+## 网络日线补齐与自动化（TDX 长期不可用 / 用户出差时）
+
+TDX 的 `vipdoc` 依赖用户手动“盘后下载”；RDP 断开或用户出差时本地数据会整段缺失，但分析链路本身不必依赖它。
+
+**本机 DSA 项目（`~/dsa`）全走网络**：优先级 Tushare(P-1) → Efinance(P0) → Tencent(P0) → Akshare(P1) → Pytdx(P2) → Baostock(P3) → Yfinance(P4)，前三失败会自动降级。Pytdx 是**网络协议**（连通达信行情服务器），不读本地 `.day`——“没下载通达信数据就没法分析”是误解。
+
+- **取数命令**：`cd ~/dsa && ./venv/bin/python main.py --dry-run --no-market-review`（只取数据不做 LLM 分析，9 只约 5-10 秒）
+- **跑的时刻决定拿到哪一天**：09:00 跑 → **T-1**（当天还没开盘）；**16:00 后跑 → 当天收盘数据**（Tushare 日线已更新）。用户要“当天盘后数据”就排 15:30-16:30，排开盘前会永远晚一天。
+- **落库**：`~/dsa/data/stock_analysis.db` → `stock_daily(code,date,open,high,low,close,volume,amount,pct_chg,data_source,...)`，`volume` 单位是**股**。
+- **⚠️ `main.py` 只抓 `STOCK_LIST` 里的股票，不抓 ETF**：ETF 必须单独补（本机现成脚本 `~/dsa/fetch_etf_daily.py`，新浪优先/腾讯兜底，只插缺失日期，可反复跑）
+  - ETF 代码前缀：`159xxx` → `sz`，`51xxxx`/`56xxxx`/`58xxxx` → `sh`
+  - **ETF 优先用新浪 K-line，不要用腾讯 ifzq**：部分 ETF 在 ifzq 返回的节点不是 `qfqday`（只有 `day`），按 qfqday 解析会报 `string indices must be integers`；且新浪 `volume` 直接是**股**，与 `stock_daily` 口径一致，腾讯是**手**（需 ×100）
+- **自动化建议用 watchdog 模式**：`~/dsa/daily_topup.py` = 交易日判断 → main.py 取股票 → fetch_etf_daily.py 取 ETF → 校验每个标的是否有当日记录；**齐全时 stdout 为空**，有缺失才输出告警，配合 `no_agent` cron 即“正常不推送、异常才打扰”。cron 表达式 `30 16 * * 1-5`。
+- **cron 的 `script` 参数只收 `~/.hermes/scripts/` 下的相对文件名**（绝对路径会被拒），用一个 3 行包装脚本 `subprocess.run([dsa/venv/bin/python, dsa/daily_topup.py], cwd=dsa)` 转发 stdout 即可。
+- **完整性自检**：按 `SELECT DISTINCT date ... ORDER BY date DESC LIMIT 40` 逐日比对全部标的；只看 `MAX(date)` 会漏（它只反映最新那只）。
+- **别在 heredoc 里内联引用大数据库**：安全守卫要求命令引用的脚本/文件可扫描且 <1 MiB，`stock_analysis.db` 这类库会把整条命令拦成 “scan budget exhausted”。修法：把查询写成 `/tmp/xxx.py` 再 `python3 /tmp/xxx.py`（对 `smd.db` 那种几百 KB 的小库，`python3 -c` 内联没问题）。
+
+## 长影线 / 多空分歧研判（“连续几天长上下影线，要不要走？”）
+
+用户对形态的描述常偏主观（“长影线”可能只有 1% 幅度、“高位”可能只是区间中位），**先用数据验证三个前提再谈结论**：
+
+1. **取 150 日前复权日线**，算位置：`(现价 − 150日低) / (150日高 − 150日低)`。>80% 才算高位；50% 附近只能说“阶段高位”（相对近 10 日涨幅），**不是历史高位**。再列各月最高价，看趋势是逐月下移还是刚回升。
+   **分位祇回答“在区间哪一段”，不等于贵贱**：银行、公用事业、高速等高股息价值股，必须叠 PB/PE/股息率再说估值 —— PB 0.8 倍、PE 6.5 倍、股息 5% 的银行即使站在 85% 分位也是“位置高但估值不贵”，说成“全场最贵”是错。反之高估值成长股在 15% 分位也只能说“跌了很多”，不等于便宜。两步分开做：先分位排结构，再估值定贵贱。
+2. **影线量化**：`上影 = high − max(open,close)`、`下影 = min(open,close) − low`、`影线占振幅 = (上影+下影)/(high−low)`。影线占振幅 ≥60% + 实体极小 才是“多空拉锯”K 线；但**必须同时看绝对幅度**——影线仅 0.5%~1.5%、日振幅 <3.5% 属温和震荡，不是“剧烈分歧”。
+3. **量能定性（最关键）**：`5日均量 / 20日均量`。≈1.0 或不放大 = **缩量换手/洗盘**；真出货是**放量滞涨**（量能放大 1.5 倍以上而价格不涨）。**“高位长影线 + 缩量” ≠ 顶部**——不要据此劝用户清仓。
+4. **趋势结构**：MA5/10/20/60 是否多头排列、现价在哪条均线上方。没放量跌破 MA20，趋势未坏。
+5. **结论必须给条件触发价位**，不只给“建议减仓”：阻力（区间高点/前高）、支撑（MA10/MA20/MA60/区间低点）、**用户成本价**，各自对应「继续持有 / 减仓 / 清仓」。
+6. **先问按哪套逻辑持有**：金医生是长线 ETF + 个股量化双策略。长线逻辑下基本面（业绩预告、来水/发电量等已入库数据）没变就不要因小震荡劝下车；短线逻辑才谈部分止盈。
+
+**Tencent ifzq 日线字段顺序坑**：`qfqday` 每行是 `[date, open, close, high, low, volume]`——**close 在 high/low 之前**，不是常见 OHLC。按 OHLC 解析会把收盘/最高/最低搞错且不报错，必须照此顺序取。
+
+一键速检：`python3 scripts/kline_shadow_check.py <6位代码> [条数]`——取前复权日线，直接输出区间分位、最近 12 日影线明细、量能比与均线位置，省掉手写解析。
 
 ## Trend Analysis (均线趋势评分)
 
@@ -404,7 +476,7 @@ See `references/a-stock-screening-pipeline.md` for the full implementation: Sina
 - **Holidays**: Only trading days are stored. Weekends and Chinese holidays (Spring Festival, National Day, etc.) will have gaps in the sequence.
 - **Stock code lookup**: Always prepend the exchange prefix (`sz`/`sh`/`bj`) when constructing the file path. The 6-digit code alone is not unique across exchanges.
 - **Data recency**: The `.day` file is updated after each trading day's close (盘后数据). Check the file modification time to see if it's current.
-- **RDP drive unmounted**: `thinclient_drives/E:` may only contain `HermesBackup` when the RDP session is disconnected — vipdoc paths silently missing. Check `os.path.exists()` on the `.day` file first; if absent, go straight to online APIs (push2his K-line with `lmt=320` covers full history for resistance-zone analysis).
+- **RDP drive unmounted**: `thinclient_drives/E:` may only contain `HermesBackup` when the RDP session is disconnected — vipdoc paths silently missing. Check `os.path.exists()` on the `.day` file first; if absent, go straight to online APIs (push2his K-line with `lmt=320` covers full history for resistance-zone analysis). **If push2his returns HTTP:000**（它可能只解析到 IPv6 如 `2406:d440:...` 而静默失败），别在 DNS 上空转——直接换 腾讯 ifzq 或 新浪 K-line（两者实测可用，同样能取 150~320 条日线）。
 - **Tencent qt.gtimg.cn field alignment**: When a stock is 跌停/涨停 (limit down/up), some fields shift or contain anomalous values. The 换手率 (field 37) can return a non-percentage number (e.g. 317995 instead of 0.78%). Always cross-check with field 49 (换手率备用) or compute manually: `成交量(手) * 100 / 流通股本(万股)`. Similarly, field 41 (每股净资产) and field 42 (流通股本) can be misaligned on limit days — verify against known values or use East Money push2 API (field f185/f186) as a backup source. PE(TTM) field 38 and turnover fields have been observed wrong even on NORMAL days (苏州银行 2026-09-01: field 38=1.08 vs actual ≈5.95; field 49=1.59% vs computed 1.08%) — for valuation metrics use East Money push2 stock/get as the authoritative source (see Single-stock fundamentals above).
 - **execute_code may be blocked**: In some Hermes configurations, `execute_code` is blocked by security policy (cron_mode). When this happens, use `terminal` with inline `python3 -c "..."` or heredoc `python3 << 'EOF'` instead.
 - **News search APIs are unreliable**: Most Chinese financial news APIs (财联社, 同花顺, 百度) fail with 404, empty responses, or DNS errors. **Exception — 东方财富 `search-api-web.eastmoney.com` works** (no auth, JSONP format; strip the `jQuery(...)` wrapper). For breaking news about a stock, use that endpoint first, then browser-based search as fallback. See `references/stock-news-investigation.md` for the full per-stock news/rumor check workflow.
