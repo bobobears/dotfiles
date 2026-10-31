@@ -1,10 +1,10 @@
 ---
 name: chinese-stock-data
 description: >-
-  Parse, query, and work with Chinese A-share stock market data from
-  通达信 (TDX) binary formats (.day, .min, .eday). Covers daily k-line,
-  minute-line, and extended daily data. Handles Shenzhen, Shanghai, and
-  Beijing exchange stock codes.
+  Parse, query, and work with Chinese A-share stock market data:
+  TDX binary .day files, Sina/Tencent/East Money live APIs,
+  and 财报/季报解读 (financial reports, earnings-miss risk, market-wide review).
+  Covers daily k-line, real-time quotes, disclosure calendars.
 ---
 
 # Chinese Stock Data (TDX / 通达信 Format)
@@ -319,6 +319,40 @@ curl -s "http://push2.eastmoney.com/api/qt/stock/get?secid=0.002966&fields=f43,f
 
 **⚠️ Note:** HTTPS to push2 may be DNS-blocked by some routers (e.g. Xiaomi 192.168.31.1). Use HTTP or `--resolve` workaround (see below). For batch stock queries (your watchlist), the `secids` parameter uses the same market prefix rules: 上海 stocks use `1.`, 深圳 stocks use `0.`, 创业板 use `3.`.
 
+### 6. 东方财富 datacenter — 财报数据与披露日程（“三季报怎么样 / 什么时候出”必用）
+
+两个端点就能回答「业绩如何」和「财报哪天出」，都不需要 auth：
+
+```bash
+# 业绩（单季/累计都靠它算）
+curl -s -H "Referer: https://data.eastmoney.com/" \
+  "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_LICO_FN_CPD&columns=ALL&filter=(SECURITY_CODE%3D%22002039%22)&pageSize=40&pageNumber=1&source=WEB&client=WEB"
+
+# 预约披露日 / 实际披露日
+curl -s -H "Referer: https://data.eastmoney.com/" \
+  "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_PUBLIC_BS_APPOIN&columns=SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,APPOINT_PUBLISH_DATE,ACTUAL_PUBLISH_DATE&filter=(SECURITY_CODE%3D%22002039%22)&pageSize=5&source=WEB&client=WEB"
+```
+
+**`RPT_LICO_FN_CPD` 关键字段**：`REPORTDATE`（报告期）、`TOTAL_OPERATE_INCOME`（营业总收入，元）、`YSTZ`（营收同比%）、`PARENT_NETPROFIT`（归母净利，元）、`SJLTZ`（净利同比%）、`BASIC_EPS`、`WEIGHTAVG_ROE`。一次拉 40 条可以拿到近 10 年全部季报/年报，不用分批。
+
+**四个坑（都实测过）**：
+1. **列名是 `REPORTDATE` 不是 `REPORT_DATE`** —— 传 `sortColumns=REPORT_DATE` 会直接报 `"REPORT_DATE排序列不存在" code:9501`。**干脆不传 `sortColumns`**，返回顺序已经是倒序（最新在前）。
+2. **主机名必须带 `-web`**：`datacenter.eastmoney.com`（无 `-web`）返回 `{"result":null}` / 0 行，看着像“没数据”，其实是错的子域。
+3. **单季数据要自己减**：接口只给累计值。Q3 单季 = 三季报累计 − 中报累计（营收和净利各自减），同比也用单季算。这是判断“业绩拐点”的关键——一个公司可能半年报 +83%、三季报累计 +25%，拆开才看到 Q3 单季是 **−52%**。
+4. **`filter` 里的引号必须 URL 编码**：`(SECURITY_CODE%3D%22002039%22)`，直接写 `="002039"` 会被拒。
+
+**判读配套（"这只票会不会爆雷"）**：拿到同比之后不要直接下结论，按下面五步走——
+
+1. **先定商业模式的可预测性**（这一步决定后面所有判断）。靠天吃饭的行业（水电/煤炭/养殖/航空）同比在 −47%~+175% 之间摆动是常态，单季腰斩只能说明气候或价格周期，拿“上一年是高基数”解释下滑 ≠ 经营恶化；银行/公用事业/高速这类连续多年 5%~10% 的品种才是可比的年报口径。**用同一个"爆雷"标准套两种商业模式是错的**。
+2. **看历史波动区间判断"这品种能不能暴跌"**：连续 8 年正增长的品种（如优质城商行）没有"单季腰斩"的机制——收入是一笔笔贷款攒出来的，不会某天突然归零；而利润在 1 亿~6 亿之间年年跳的品种，一个季度就能把全年增速打负。
+3. **用已披露季度做锚**：未出三季报时，中报里的 Q1/Q2 单季增速比任何预测都准（业务平缓的品种尤其适用）。给用户的概率区间要基于这个锚，不是拍脑袋。
+4. **看利润的可调节垫子**：银行额外看**拨备覆盖率**——行业均值约 205%、城商行约 173%，380% 以上的拨备意味着坏账翻几倍也兜得住，几乎不存在"业绩腰斩"的可能；反过来，拨备已压到行业下限、还在释放拨备保利润的，才是真正的风险点。非银看其他压舱物：在手订单、现金流、合同负债。
+5. **必须把"雷"拆成两档再报概率**：
+   - **绝对爆雷**（净利负增长/腰斩）：商业模式失效才会发生，概率低但杀伤大；
+   - **不及预期**（增速仍为正、但低于券商一致预期）：这才是股价下跌的常见原因，**先查一致预期（券商策略报告/盈利预测）再评估**，实际落在预期下限也会跌。
+
+给用户结论时两档分开写（如"下滑概率 <5%，但只及预期下限导致回调的概率 20-25%"），不要笼统说"爆雷概率低"——他要回答的是「会不会跌」，不是「会不会亏」。
+
 ### ⚠️ 字段顺序：每个接口各不相同（最高频的数据事故）
 
 同一个「收盘价」在不同接口里位置完全不同。**按猜的索引解析不会报错，只会把行情读反**，而且读反后的数字看着都很合理，肉眼难以察觉。引用前先打印一行原始数据对照，再继续。
@@ -412,6 +446,29 @@ TDX 的 `vipdoc` 依赖用户手动“盘后下载”；RDP 断开或用户出�
 - **cron 的 `script` 参数只收 `~/.hermes/scripts/` 下的相对文件名**（绝对路径会被拒），用一个 3 行包装脚本 `subprocess.run([dsa/venv/bin/python, dsa/daily_topup.py], cwd=dsa)` 转发 stdout 即可。
 - **完整性自检**：按 `SELECT DISTINCT date ... ORDER BY date DESC LIMIT 40` 逐日比对全部标的；只看 `MAX(date)` 会漏（它只反映最新那只）。
 - **别在 heredoc 里内联引用大数据库**：安全守卫要求命令引用的脚本/文件可扫描且 <1 MiB，`stock_analysis.db` 这类库会把整条命令拦成 “scan budget exhausted”。修法：把查询写成 `/tmp/xxx.py` 再 `python3 /tmp/xxx.py`（对 `smd.db` 那种几百 KB 的小库，`python3 -c` 内联没问题）。
+
+## 自选股池增删（“把 XXX 移出股票池”）
+
+用户说“清仓了，把 XXX 移出股票池”时，**不是只改一处**：代码里有 7 处各自硬编码了一份自选股列表，漏改任何一处都会导致次日分析仍把它算进去（或名字映射 KeyError）。
+
+**必改清单**（本机 `~/dsa` + `~/.hermes/memories/USER.md`）：
+
+| 位置 | 内容 |
+|---|---|
+| `~/dsa/.env` | `STOCK_LIST=...`（DSA 主程序读这个）|
+| `~/dsa/daily_topup.py` | `CODES = [...]`（盘后补齐脚本，含 ETF）|
+| `~/dsa/gen_analysis_data.py` | `STOCKS = [...]` + `NAMES = {...}` 两处 |
+| `~/dsa/cron_indicator_report.py` | `NAMES = {...}` |
+| `~/dsa/compute_indicators.py` | `WATCH = {...}` |
+| `~/dsa/compute_analysis_*.py` | 历史一次性分析脚本里的 `WATCH`/列表（不影响运行，但为一致性一并改）|
+| `~/.hermes/memories/USER.md` | “A 股自选股（N 只）”标题里的数字 + 表格里的行 |
+
+**流程与验证**：
+1. 先 `grep -rn "<代码>" --include="*.py" --include=".env" ~/dsa` 摸清全部命中点（排除 `venv/`、`reports/`、`data/cache/` —— 历史报告和缓存里的命中不算残留）。
+2. 逐处 patch（**用 patch 工具，不要 sed** —— `.env` 是 600 权限的敏感文件，批量 sed 容易连带改错行）。
+3. 改完重扫一次 grep，输出为空才算干净；再跑一遍 `venv/bin/python -c "import ast; ..."` 语法检查被改的脚本。
+4. **数据库里的历史日线不要删**：`stock_analysis.db` 里该股的旧记录留着做复盘/回测正好用，删了反而丢历史（已退出的股票只是不再被补齐，不影响新数据）。
+5. 报告时列出“改了哪几处 + 现股票池几只（N 股 + M ETF）+ 保留了 N 条历史数据”。
 
 ## 长影线 / 多空分歧研判（“连续几天长上下影线，要不要走？”）
 
@@ -524,7 +581,32 @@ For "下一步趋势和空间" questions — beyond MA scoring, this workflow pr
 - Scenario table first (情景 | 概率 | 路径 | 目标空间), then key confirmation signals as a short numbered list, then one-line conclusion.
 - Anchor everything to the nearest historical level with concrete numbers ("距前高9.12仅0.7%") — beats abstract "还有空间".
 
+## 板块轮动分析（“哪个板块接替龙头 / 科技跌了钱去哪了”）
+
+板块指数的直接来源在本环境不可靠：**东财 BK 行业指数（`90.BK` secid）限流/返回空**，腾讯板块 K 线（`pt01801784` 之类）结构不一致无法程序化解析。**改用宽基 ETF 代理行业**——同一 push2his/ifzq 端点、数据干净、代码即行业：
+
+| 行业 | 代理 ETF | 行业 | 代理 ETF |
+|---|---|---|---|
+| 红利 | 515080 | 银行 | 512800 |
+| 煤炭 | 515220 | 保险 | 512070 |
+| 军工 | 512660 | 白酒 | 512690 |
+| 电力 | 159611 | 有色 | 512400 |
+| 医药 | 512010 | 通信 | 515880 |
+| 光伏 | 515790 | 证券 | 512880 |
+
+**方法（250 日窗口，一次拉齐全部候选再横向对比）**：
+1. 每只 ETF 取 250 日前复权日线（ifzq `qfqday`，注意 close 在 high/low 之前）。
+2. 每板块算五个数：**当日涨跌%、250 日分位 `(cur-lo)/(hi-lo)`、60 日涨幅、距 MA20%、20 日涨幅**。输出成一张表。
+3. 横向排序看 60 日涨幅与当日抗跌性——**“接替龙头”的判据不是谁涨得多，而是相对强度**（大盘跌它不跌 / 逆势收阳）或**低位+动量**（分位 <50% 但 60 日 >5%）。两者都满足的才是进攻接替候选；只满足高位的（如银行 100% 分位）定性为**避险/防御，不追**。
+4. 结论必须区分两档：**短期无新龙头只有防御**（高股息避风港，赚“科技跌它不跌”的钱）与**中期进攻接替者**（低位+抗跌+叙事，条件触发型）。
+
+**呈现（金医生偏好）**：全板块体检表（板块 | 当日 | 250日分位 | 60日 | 距MA20 | 定性，🔴/★ 标记）→ 判断逻辑（为什么不是 X、谁最可能、次选、不碰的及原因）→ 持仓角度（现有防御仓是否够，别重复配置）→ 纪律表（动作 | 触发条件：放量站上 MA20 等右侧信号、单仓上限、总仓位纪律）。**所有接替候选都是条件触发型**——信号没出现就写“记入观察列表，别抢跑”，不给现价买入建议。
+
+---
+
 ## Reference Files
+
+- 组合层面的持仓体检与配置建议（要不要卖/买/换、集中度、分批、纪律线）见 skill: `portfolio-allocation-review`。
 
 - `references/stock-news-investigation.md` — 个股异动/利空核查工作流（"为什么XX低开/大跌？有没有特殊信息？"）：盘面→公告→新闻搜索→龙虎榜/大宗/融资→股吧→K线→财报披露日，全部端点含 curl 命令。
 - `references/002039-example.md` — Worked example of parsing 002039 黔源电力 (Shenzhen) with actual raw binary values, price validation, and recent market data.

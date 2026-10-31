@@ -1,6 +1,6 @@
 # DSA 盘后数据自动补齐（网络源）
 
-用户外出/无法手动下载盘后数据时，用网络源保证 9 只自选股 + 3 只 ETF 的日线不缺日。
+用户外出/无法手动下载盘后数据时，用网络源保证 8 只自选股 + 3 只 ETF 的日线不缺日。
 
 ## 1. 时点与命令
 
@@ -9,13 +9,13 @@
 | 09:00（现有分析 cron） | `./venv/bin/python main.py --dry-run --no-market-review` | **T-1** 收盘 |
 | 16:30 之后 | 同上 | **当日**收盘（Tushare 日线已更新） |
 
-`--dry-run` 跳过 DSA 自带 LLM，只取数；`--no-market-review` 跳过它的大盘复盘。全程约 5–15 秒（9 只股票）。
+`--dry-run` 跳过 DSA 自带 LLM，只取数；`--no-market-review` 跳过它的大盘复盘。全程约 5–15 秒（8 只股票）。
 
 ## 2. 缺口：ETF 不在 main.py 里
 
 `main.py` 只遍历 `.env` 的 `STOCK_LIST`（纯股票）。ETF 必须单独抓，否则日线停在任务启用前那天。
 
-修完的状态应是：12 个标的（9 股 + 3 ETF）最新日期一致。
+修完的状态应是：11 个标的（8 股 + 3 ETF）最新日期一致。
 
 ## 3. ETF 抓取（新浪优先，腾讯兜底）
 
@@ -54,14 +54,14 @@ sys.exit(r.returncode)
 ## 5. 校验（不要只看 MAX(date)）
 
 ```sql
--- 某日覆盖数：应为 12
+-- 某日覆盖数：应为 11
 SELECT COUNT(DISTINCT code) FROM stock_daily WHERE date='YYYY-MM-DD';
 
--- 逐标的找缺口：最近 40 个交易日，哪几天不足 12 个代码
-SELECT d.date, 12 - COUNT(DISTINCT s.code) AS missing
+-- 逐标的找缺口：最近 40 个交易日，哪几天不足 11 个代码
+SELECT d.date, 11 - COUNT(DISTINCT s.code) AS missing
 FROM (SELECT DISTINCT date FROM stock_daily ORDER BY date DESC LIMIT 40) d
 LEFT JOIN stock_daily s ON s.date = d.date
- AND s.code IN ('002039','002047','002966','300706','300750',
+ AND s.code IN ('002047','002966','300706','300750',
                 '301228','301306','301392','688603','159819','515080','510500')
 GROUP BY d.date HAVING missing > 0;
 ```

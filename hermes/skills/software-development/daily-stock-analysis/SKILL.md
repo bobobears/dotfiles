@@ -76,6 +76,11 @@ STOCK_LIST=600519,300750,002594
 > | 5 | `~/dsa/compute_indicators.py` | `WATCH` |
 > | 6 | `~/dsa/compute_analysis_*.py`（多个） | `WATCH` 元组列表 |
 > | 7 | `~/.hermes/memories/USER.md` | 「A 股自选股（N 只）」标题数字 **+ 表格该行** |
+> | **8** | **`~/private_db/private.db` → `watchlist` 表** | **`db.py` 投资决策池（`active=1`）；与 .env 完全独立，两套并存** |
+>
+> **⚠️ 第 8 处是最容易漏的坑**：`db.py watchlist` 管的是「投资决策池」（评分/持仓/笔记），`.env` 管的是「DSA 分析池」（每日 09:00 分析 + 16:30 补数据）。在 watchlist 里加了股票 ≠ 分析任务会扫它。曾出现「新增 2 只（600760 中航沈飞、600011 华能国际）只写进 watchlist 表，`.env` 未同步，次日 09:00 分析仍报『开始分析 8 只股票』」。新增股票必须两处都写；判断当前真实池子用 `python3 ~/private_db/db.py watchlist`。
+>
+> **新增股票后必须补历史 K 线**：DSA 首次抓取往往只拿近 38 条（约 2 个月），不够算 MA60。补法：抓腾讯 `fqkline` 250+ 天写入 `stock_daily`（字段含 ma5/ma10/ma20/volume_ratio/pct_chg，需自行计算）。**盘中（15:00 前）跑的补数据要把当日那条删掉**——那抓到的是实时价不是收盘价，等 16:30 收盘任务覆盖。
 >
 > 收尾三验：① 上述 grep 无残留（`reports/`、`venv/`、`data/cache/` 不算）② `python -c "import ast;ast.parse(open(f).read())"` 过语法 ③ 读回 `CODES` 确认为新数量。**`stock_analysis.db` 里的历史 K 线不要删**——不影响后续分析，复盘/回测还要用。
 
@@ -138,7 +143,7 @@ python main.py
 | 阶段 | 执行者 | 命令 | 说明 |
 |:----|:------|:-----|:-----|
 | 步骤 1 — 取数 | DSA 脚本 | `python3 main.py --dry-run --no-market-review` | 只抓行情，**故意不跑 LLM** |
-| 步骤 2 — 校验 | Agent | 读日志确认 9 只自选股数据完整 | — |
+| 步骤 2 — 校验 | Agent | 读日志确认 8 只自选股数据完整 | — |
 | 步骤 3 — 分析 | **Hermes 对话模型** | 用上一步取到的数据分析技术面 | 不消耗 SiliconFlow 额度 |
 | 步骤 4 — 报告 | Agent | 生成中文报告，最终回复自动投递 | 含【大盘概况】由 Agent 自写 |
 
@@ -329,7 +334,7 @@ DSA 取数**全程走网络**，不依赖通达信本地文件。实测数据源
 - **ETF 接口差异**：腾讯 `fqkline` 对部分 ETF（如 159819）返回 key 是 `day` 而非 `qfqday`，且 volume 单位是**手**（×100 才等于库内的"股"）；新浪 `getKLineData` 直接给股、结构稳定 → **优先新浪，腾讯兜底**。
 - **定时任务用 watchdog 模式**：cron `no_agent=true` + 脚本"齐全则无输出"——空 stdout 不推送，只有缺失/失败才发飞书，避免用外出期间每天刷屏。
 - **cron 的 `script` 只接受 `~/.hermes/scripts/` 下的相对文件名**，写绝对路径会被拒；做法是在 `~/.hermes/scripts/` 放一个几行的包装脚本，用绝对路径 `subprocess.run` 调 `~/dsa/` 里的真脚本。
-- **校验口径 = 12 个标的（9 股 + 3 ETF）当日全覆盖**，不能只看 `MAX(date)`：ETF 滞后时库里最新日期仍是当天（股票撑起来的），缺口会被掩盖。
+- **校验口径 = 11 个标的（8 股 + 3 ETF）当日全覆盖**，不能只看 `MAX(date)`：ETF 滞后时库里最新日期仍是当天（股票撑起来的），缺口会被掩盖。
 - **查库命令不要把大 DB 路径写进 heredoc**：`stock_analysis.db` 远超 gateway 扫描上限（1 MiB），命令里引用它会被 lifecycle guard 直接拒绝（报 "larger than the scan cap"）。把查询 write_file 成 `/tmp/xx.py` 再执行。
 
 完整配方（两个脚本、cron 参数、校验 SQL、接口地址）见 `references/data-topup.md`。

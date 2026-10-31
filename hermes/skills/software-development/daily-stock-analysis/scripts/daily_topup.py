@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DSA 每日盘后数据补齐（cron watchdog 模式）
 
-流程：交易日检查 → 股票(main.py) → ETF(fetch_etf_daily.py) → 12 标的完整性校验
+流程：交易日检查 → 股票(main.py) → ETF(fetch_etf_daily.py) → 11 标的完整性校验
 输出：全齐 → 无输出（no_agent 下即不推送）；有缺失/失败 → 打印告警
 
 配合 cron: schedule='30 16 * * 1-5', no_agent=true, script=<~/.hermes/scripts/ 下的包装脚本>
@@ -12,7 +12,7 @@ from datetime import datetime
 DSA = '/home/bobobears/dsa'
 PY = f'{DSA}/venv/bin/python'
 DB = f'{DSA}/data/stock_analysis.db'
-CODES = ['002039', '002047', '002966', '300706', '300750',
+CODES = ['002047', '002966', '300706', '300750',
          '301228', '301306', '301392', '688603', '159819', '515080', '510500']
 
 problems = []
@@ -46,7 +46,7 @@ try:
 except Exception as e:
     problems.append(f'ETF 执行异常: {e}')
 
-# 4) 完整性校验：12 个标的当日全覆盖
+# 4) 完整性校验：11 个标的当日全覆盖
 today = datetime.now().strftime('%Y-%m-%d')
 try:
     conn = sqlite3.connect(DB)
