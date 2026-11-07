@@ -57,14 +57,15 @@ Deeper notes: `references/revisions-and-comments.md` (Word review markup) and
     PY="$HOME/.cache/hermes-docs-venv/bin/python"
     "$PY" -c "import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber, pypdfium2" 2>/dev/null || (
       # Safe to run from several agents at once: each caller builds a private venv,
-      # a symlink publishes the first finished one atomically, the others delete theirs.
+      # a symlink publishes the first finished one atomically, the others delete theirs;
+      # a published build is replaced and deleted only while it still fails to import.
       mkdir -p "$HOME/.cache" && cd "$HOME/.cache" && stage="$(mktemp -d hermes-docs-venv.XXXXXX)" || exit 1
-      old="$(readlink hermes-docs-venv)"  # an earlier build that no longer imports, if any
+      old="$(readlink hermes-docs-venv)"  # the published build, if any (another agent may have just published it)
       python3 -m venv "$stage" &&
         "$stage/bin/python" -m pip install -q --disable-pip-version-check python-docx==1.2.0 openpyxl==3.1.5 python-pptx==1.0.2 reportlab==5.1.0 pypdf==6.21.2 pdfplumber==0.11.10 pypdfium2==5.14.0 &&
         "$stage/bin/python" -c "import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber, pypdfium2" &&
         if [ -z "$old" ]; then python3 -c 'import os, sys; os.symlink(*sys.argv[1:])' "$stage" hermes-docs-venv
-        elif [ "$(readlink hermes-docs-venv)" = "$old" ]; then
+        elif [ "$(readlink hermes-docs-venv)" = "$old" ] && ! "$old/bin/python" -c "import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber, pypdfium2" 2>/dev/null; then
           ln -s "$stage" "$stage.lnk" && python3 -c 'import os, sys; os.replace(*sys.argv[1:])' "$stage.lnk" hermes-docs-venv &&
             case "$old" in hermes-docs-venv.??????) rm -rf "$old" ;; esac
         fi 2>/dev/null
@@ -145,6 +146,9 @@ so rather than approximating. For other sheets use
 - **Nothing computes fields or formulas.** Word TOC/page fields and Excel
   formulas are filled in by the office app on open (or by `xlsx_recalc.py`).
 - **Encoding.** Write specs as UTF-8; the helpers read UTF-8 explicitly.
+- **Never name a helper script after a library you import** — a script literally called `inspect.py` (or `docx.py`) shadows the stdlib/library on `import` and crashes with a confusing circular-import / partially-initialized-module error. Name scratch scripts with a prefix (e.g. `tmpl_inspect.py`).
+- **`xlsx_read.py --json` on a wide sheet** emits one cell per column for every row, so a few rows in a 1000+-column sheet can blow past the output budget. For extraction, write a small `openpyxl` script with `data_only=True`, iterate `ws.iter_rows(values_only=True)`, and trim trailing `None`s; skip empty sheets before printing.
+- **To replicate a `.doc`/`.docx` template's exact look** (fonts, sizes, indent, page setup): `soffice`-convert it to `.docx`, open that with python-docx, and reuse its section + paragraph skeleton — rewrite each paragraph's runs in place instead of rebuilding the document. Set each run's CJK font via `w:rFonts` `w:eastAsia` (and ascii/hAnsi) or the Chinese characters fall back to the default font. Read the template's run `rFonts`/`size`/`paragraph_format` first so you copy the real values, not guesses.
 - Format-specific traps are in each reference.
 
 ## Verification

@@ -1,8 +1,5 @@
 model:
-  context_length: 65536
   default: qwen3.8-27b@q8_0
-  provider: lmstudio
-  lmstudio_load_mode: jit
 providers:
   lmstudio:
     api: http://127.0.0.1:1234/v1
@@ -10,6 +7,7 @@ providers:
     default_model: qwen3.8-27b@q8_0
     name: lmstudio
     context_length: 65536
+  default: lmstudio
 fallback_providers:
   - provider: custom
     model: qwen3.8-27b@q8_0
@@ -168,8 +166,8 @@ auxiliary:
     model: ''
     timeout: 360
   compression:
-    provider: auto
-    model: ''
+    provider: deepseek
+    model: 'deepseek-flash'
     timeout: 120
   skills_hub:
     provider: auto
@@ -729,3 +727,4 @@ _left_core_scoped:
   - homeassistant
 _left_core_installed:
   - homeassistant
+provider: deepseek

@@ -111,3 +111,50 @@ systemd-run --user --unit=lo-writer-test \
 systemctl --user stop lo-writer-test        # 干净收尾（别用 pkill）
 ```
 判据：窗口 `Map State=IsViewable` 且几何完全落在屏内。克隆 profile 保证测的是本次改的规则，独立实例保证失败也不影响用户数据（本机实测 Writer 窗口落在 `(83,56) 2476x1371`）。
+
+## 输入法（fcitx4）反复丢失
+
+**症状**：桌面中文打不出来，`ps -eo cmd | grep [f]citx` 无输出；用户会说"输入法又丢了"。
+
+**根因（本机已复现两次）**：以前是用 `DISPLAY=:10.0 fcitx -r` 在 Hermes 会话里启的 → 进程落在 `hermes-worker-proc_*.scope`（**网关 cgroup 内**），网关一重启/升级就被连坐杀掉。同理，任何在会话里 `&` 起的 GUI/常驻程序都有这个宿命。
+
+**根治**：写 systemd 用户单元，让它活在网关之外：
+
+```ini
+# ~/.config/systemd/user/fcitx-ime.service
+[Unit]
+Description=Fcitx4 IME for the xrdp desktop session (:10)
+After=graphical.target
+[Service]
+Type=forking
+Environment=DISPLAY=:10.0
+Environment=GTK_IM_MODULE=fcitx
+Environment=QT_IM_MODULE=fcitx
+Environment=XMODIFIERS=@im=fcitx
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+ExecStart=/usr/bin/fcitx -r
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now fcitx-ime.service
+```
+
+**两个必踩的坑**：
+- `Type=simple` 不行——fcitx4 自己 fork 守护，父进程立刻 exit 0，systemd 判为失败并无限重启。要用 `Type=forking`。
+- **不要写 `PIDFile=`**——fcitx4 不写 pid 文件，unit 会卡在 `activating (start)` 直到超时。
+
+**验证（三件套）**：
+```bash
+systemctl --user is-active fcitx-ime.service                       # active
+systemctl --user status fcitx-ime.service | grep CGroup            # 必须是 fcitx-ime.service，不是 hermes-worker scope
+DISPLAY=:10 fcitx-remote                                          # 0=关 1=未激活(英文) 2=中文激活
+DISPLAY=:10 xprop -root | grep XIM_SERVERS                        # @server=fcitx
+```
+注意 `fcitx-remote` 只有 `-c/-o/-t/-s/-e/-a/-m` 这些选项，没有 `-v`/`-n`（会报 invalid option 并打印用法）。
+
+**清理残留**：手工测过 fcitx 后必须 `systemctl --user stop fcitx-ime.service` + `pkill -x fcitx`，再重启服务，否则会留下一个挂在网关 cgroup 里的野进程，下次网关重启又"丢"一次。

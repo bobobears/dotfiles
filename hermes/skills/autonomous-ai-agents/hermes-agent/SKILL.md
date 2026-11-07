@@ -106,6 +106,7 @@ hermes model                Interactive model/provider picker
 hermes config               View current config
 hermes config edit          Open config.yaml in $EDITOR
 hermes config set KEY VAL   Set a config value
+hermes config unset KEY     Remove a config value (use this, not a file edit)
 hermes config path          Print config.yaml path
 hermes config env-path      Print .env path
 hermes config check         Check for missing/outdated config
@@ -181,6 +182,8 @@ hermes sessions prune       Clean up old sessions (--older-than N days)
 hermes sessions stats       Session store statistics
 ```
 
+**Note:** `hermes sessions discard` is for clearing "unknown admission" state (e.g. after a gateway restart with an in-flight request). It does NOT clear compression-pending or stuck-turn state — see the "Session stuck / UI flickering" troubleshooting section.
+
 ### Cron Jobs
 
 ```
@@ -204,6 +207,10 @@ hermes webhook test NAME    Send a test POST
 
 Full setup, route config, payload templating, and event-driven agent-run
 patterns: `skill_view(name="hermes-agent", file_path="references/webhooks.md")`.
+
+Keeping the built-in persistent memory fresh (refine-don't-overwrite, date/
+source on entries, a weekly consolidation cron with `continuity: true`):
+`skill_view(name="hermes-agent", file_path="references/memory-consolidation.md")`.
 
 ### Profiles
 
@@ -911,8 +918,111 @@ Common gateway problems:
 If `auxiliary` tasks (vision, compression, session_search) fail silently, the `auto` provider can't find a backend. Either set `OPENROUTER_API_KEY` or `GOOGLE_API_KEY`, or explicitly configure each auxiliary task's provider:
 ```bash
 hermes config set auxiliary.vision.provider <your_provider>
-hermes config set auxiliary.vision.model <model_name>
+hermes config set auxiliary.vision.model <your_model_name>
 ```
+
+### Session stuck / UI flickering after context compression
+
+When a session's context exceeds the compression threshold, Hermes triggers an automatic context compression via the `auxiliary` model. If the auxiliary model is a **slow local model** (e.g. LM Studio with a large context), the compression can take 30+ minutes or hang indefinitely. The session then shows a stuck/pending state in the Desktop UI (flickering dialog, title frozen).
+
+**Diagnosis:**
+1. Check which session is affected: `hermes sessions list --limit 10` — look for the session with the stuck title.
+2. Check `~/.hermes/logs/agent.log` for compression activity: `grep -i "compress\|<session_id>" ~/.hermes/logs/agent.log | tail -20`.
+3. **`active_turn_token` in `sessions.json` is NOT a reliable indicator** — the token may be absent while the compression is still pending. Do not conclude the session is clear just because the token is missing.
+
+**Fix (in order of preference):**
+1. **Wait for compression to complete** — if the local model is still running (check `curl http://127.0.0.1:1234/v1/models`), the compression will eventually finish. The session will unstick automatically.
+2. **Restart the Desktop app** — closes the client-side UI state. The backend compression continues in the gateway; the session unsticks when compression completes. This is the fastest way to clear the flickering UI.
+3. **Do NOT** try `hermes sessions discard` — it reports "no unknown admission" for compression-pending sessions and does nothing.
+4. **Do NOT** manually edit `sessions.json` to remove the session — the state.db (canonical store) is separate and will resurrect the session.
+
+**Prevention:** Point the `auxiliary` compression model at a **fast, reliable API model** (e.g. DeepSeek, OpenRouter) rather than a local model. Local models with 59K+ token contexts can take 30-60+ minutes for a single compression pass:
+```bash
+hermes config set auxiliary.compression.provider <fast_api_provider>
+hermes config set auxiliary.compression.model <fast_model>
+```
+
+### Compression fires constantly ("why is it compacting again?")
+
+The trigger point is `context_length × compression.threshold`. With the default
+`threshold: 0.5`, a context window pinned to 64k compacts at ~32k tokens — a
+couple of large tool outputs (spreadsheet dumps, long logs) and the session is
+compacted mid-task. A compaction also *ends the session* (`sessions.end_reason =
+'compression'`) and the work continues in a follow-up session, so the task looks
+abandoned when it actually finished.
+
+**Cause is almost always a stale `model.context_length` pin** overriding a much
+larger advertised window. Hermes logs the mismatch itself, so check logs before
+theorising:
+
+```bash
+grep -i "context_pin\|context_length" ~/.hermes/logs/errors.log | tail -5
+hermes config get model.context_length
+```
+
+A warning like `model.context_length pins <model> at 65,536 tokens but the
+provider advertises 1,048,576; the pin wins` is the whole diagnosis.
+
+**Fix:**
+
+```bash
+hermes config unset model.context_length                    # global pin — remove
+hermes config set providers.<local>.context_length 65536    # keep per-provider pins
+hermes gateway restart                                      # gateway holds the old value
+```
+
+- The `patch` / `write_file` tools **refuse** to edit `~/.hermes/config.yaml`
+  (security-sensitive). Use `hermes config set|unset`; `hermes config edit` for
+  multi-line edits.
+- Keep a per-provider pin (`providers.lmstudio.context_length`) for local models —
+  those genuinely have small windows and slow long-context inference. Remove only
+  the *global* `model.context_length` when the default provider's model advertises
+  a bigger window.
+- Take a backup first (`cp ~/.hermes/config.yaml ~/.hermes/config.yaml.bak-$(date +%F-%H%M)`).
+- The change is read at agent/session init: the running gateway keeps the old
+  value until `hermes gateway restart`, which interrupts the live chat turn and
+  any in-flight cron run — say so before doing it.
+
+**Restarting the gateway from inside a gateway-hosted turn.** The runtime blocks
+`hermes gateway restart` when the agent itself runs inside that gateway
+(SIGTERM would kill the restart mid-flight), and a plain backgrounded/detached
+child does **not** escape either — systemd stops the whole service cgroup.
+Working recipe: write a small script that runs `hermes gateway restart` plus a
+post-restart status snapshot, then arm it as a transient systemd unit outside
+the gateway cgroup:
+
+```bash
+systemd-run --user --collect --unit=hermes-gw-delayed-restart-$(date +%s) \
+  --on-active=25 /path/to/restart.sh
+```
+
+Tell the user the chat connection drops and to send any message afterwards,
+then read the script's log (it should include `context_pin` count + startup
+lines) to confirm.
+
+**Verifying the effective window without guessing** (run in an
+`execute_code` kernel that already has the Hermes tree importable):
+
+```python
+import sys, asyncio
+sys.path.insert(0, '/home/<user>/.hermes/hermes-agent')
+from agent.model_metadata import get_model_context_length_async as g
+print(asyncio.run(g("deepseek-v4-flash", base_url="https://api.deepseek.com/v1",
+                     provider="deepseek", config_context_length=None)))
+```
+
+Pass `config_context_length=None` to see what the provider actually advertises;
+pass the config value to see the pinned number. Note the tools redact part of
+the Hermes tool-python path in output, so never hardcode that path from a log
+line — import inside the existing kernel instead of shelling out.
+
+**Post-mortem check before declaring a task unfinished:** query the session store
+rather than trusting the UI. `sessions.end_reason='compression'` means the session
+was cut by compaction, not that the work failed; read the last assistant message
+of that session and of any successor session to see whether the result was
+delivered. `session_model_usage` rows with `task='compression'` (column `model`,
+`api_call_count`) tell you which model ran the compaction and how long/expensive
+it was — a local model there is why compaction takes tens of minutes.
 
 ### Cron job script returns empty data silently
 

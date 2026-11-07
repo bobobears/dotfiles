@@ -154,7 +154,41 @@ for line in data.strip().split('\n'):
 | 8 | 成交量 | 手 |
 | 9 | 成交额 | 元 |
 
-## Phase 5: Real-time NAV Estimate (Eastmoney fundgz)
+## Phase 5: ETF Daily K-line (Eastmoney push2his) — 入场择时 / 支撑阻力位
+
+Real-time quote (Phase 1) only gives today's price. For **entry-timing** questions
+("今天进 X 合适吗 / 支撑在哪 / 高点回撤多少"), you need the recent daily K-line.
+Use Eastmoney push2his — same endpoint as individual stocks, but ETFs need the
+`mkt` prefix in `secid`:
+
+```python
+import urllib.request, json
+
+code = '512710'
+mkt = '1' if code.startswith(('5', '58')) else '0'  # 沪市=1, 深市=0
+url = (f'https://push2his.eastmoney.com/api/qt/stock/kline/get'
+       f'?secid={mkt}.{code}'
+       f'&fields1=f1,f2,f3,f4,f5,f6'
+       f'&fields2=f51,f52,f53,f54,f55,f56,f57,f59'   # date,open,close,high,low,vol,amount,pct
+       f'&klt=101&fqt=1&end=20500101&lmt=60')
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+data = json.loads(urllib.request.urlopen(req, timeout=10).read().decode('utf-8'))
+klines = data['data']['klines']  # each: "YYYY-MM-DD,open,close,high,low,vol,amount,pct"
+```
+
+**字段顺序**（fields2 对应）：`date, open, close, high, low, volume, amount, pct_chg`。
+⚠️ **close 在 high/low 之前**（同腾讯 ifzq 的坑），别按 OHLC 解析。
+
+- `lmt` = 条数。60 ≈ 3 个月，够算 MA20 + 近月高低点；要一年分位用 `lmt=320`。
+- `fqt=1` = 前复权（ETF 一般无分红复权差异，用 `fqt=1` 或 `fqt=0` 都接近，统一 `fqt=1`）。
+- `klt=101` = 日线。
+- 从 `klines` 取：近月最高/最低、高点回撤%、MA20、支撑区（近期多次探底的价格带）。
+
+**push2his 对 ETF 的 secid 前缀**：沪市 `1.`、深市 `0.`（与个股 secid 规则一致，51xxxx→1，159xxx/15xxxx→0）。
+
+**push2his 失败（HTTP:000 / 静默失败）时**：别在 DNS 上空转，换新浪 K-line（`CN_MarketData.getKLineData`，不复权）或腾讯 ifzq（`qfqday`，close 在 high/low 前）。
+
+## Phase 6: Real-time NAV Estimate (Eastmoney fundgz)
 
 ```python
 url = f"https://fundgz.1234567.com.cn/js/{code}.js"
@@ -168,6 +202,17 @@ data = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
 #   "gszzl":"4.89","gztime":"2026-06-29 15:00"});
 # gsz=盘中估值, gszzl=估值涨跌幅%
 ```
+
+## 板块内 ETF 横向比较 → 推荐（"XX 板块推荐一只 ETF"）
+
+用户问「军工/红利/科技…板块推荐一只 ETF」时，是**同一板块多只 ETF 横向比较**，不是单只分析。流程：
+
+1. **列出该板块全部有流动性的 ETF**（一般 6-8 只），用 Phase 1 批量取实时价（含成交额/成交量 → 流动性）。
+2. **每只取近 3 月 / 6 月 / 1 年收益**（Phase 2 `pingzhongdata` 的 `syl_3y/6y/1n`）。比较时用**回撤弹性**（谁跌得少）而非绝对涨跌——同板块 ETF 涨跌同源，差异在**持仓结构**。
+3. **看持仓结构定性**：龙头集中型（前几大都是主机厂/核心厂）vs 宽基分散型。龙头集中型在板块启动时弹性大、但波动也大；分散型稳但弹性小。结合用户「长线 ETF 持有」风格，**龙头集中型通常更优**（少而精）。
+4. **输出**：一张表（ETF | 近3月 | 近1年 | 成交额 | 持仓结构 | 定性）→ 推荐 1 只 + 理由（弹性/流动性/结构）→ 次选 1 只。
+
+**坑**：同板块 ETF 名称易混（军工有 512660 军工ETF / 512710 军工龙头 / 512680 军工龙头ETF…），**先核对每只跟踪的指数**再比，别拿两个跟踪不同指数的 ETF 当「同板块」横比。
 
 ## Complete Analysis Example
 

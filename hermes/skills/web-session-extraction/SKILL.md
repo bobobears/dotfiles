@@ -37,6 +37,7 @@ Drive the user's live Firefox via X11 (python-xlib + XTest, no sudo needed):
 Recipe + pitfalls: `references/x11-firefox-navigation.md`
 
 ## Pitfalls
+- **Session state dies with the process** (in-memory only, never on disk). Probe before assuming it's alive: `curl -s -o /dev/null -w '%{http_code}' <main-page-url>` without `-L` — 200 = logged in, 302-to-login = dead. ASP.NET server sessions can die mid-job, not just on idle timeout; re-probe before each major step. When the browser itself crashes, see `references/firefox-crash-recovery.md` (relaunch via `-safe-mode`; session is gone either way — user must re-login, so fix tooling issues before asking).
 - `sqlite3 file:...?immutable=1` reads a stale snapshot: uncheckpointed WAL contents are invisible, so brand-new history visits may not appear. Fine for quick checks; use the online-backup API (or copy DB + -wal) when fresh state matters — backup can block while Firefox holds locks, run it with a timeout.
 - cache2 entries that scan as "0B payload" = URL only in header or non-gzip content; don't conclude the page is missing.
 - Big JS bundles (e.g. ECharts ~1MB) false-positive on keyword greps — classify by decompressed content (`<!DOCTYPE`/`<html` vs `{`/`[` JSON).

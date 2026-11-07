@@ -1963,6 +1963,7 @@ libxcursor1:arm64				install
 libxcvt0:arm64					install
 libxdamage1:arm64				install
 libxdmcp6:arm64					install
+libxdo3:arm64					install
 libxext6:arm64					install
 libxfce4panel-2.0-4				install
 libxfce4ui-2-0:arm64				install
@@ -2682,6 +2683,7 @@ xdg-desktop-portal-gtk				install
 xdg-user-dirs					install
 xdg-user-dirs-gtk				install
 xdg-utils					install
+xdotool						install
 xfburn						install
 xfce4						install
 xfce4-appfinder					install
