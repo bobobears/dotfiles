@@ -158,3 +158,50 @@ DISPLAY=:10 xprop -root | grep XIM_SERVERS                        # @server=fcit
 注意 `fcitx-remote` 只有 `-c/-o/-t/-s/-e/-a/-m` 这些选项，没有 `-v`/`-n`（会报 invalid option 并打印用法）。
 
 **清理残留**：手工测过 fcitx 后必须 `systemctl --user stop fcitx-ime.service` + `pkill -x fcitx`，再重启服务，否则会留下一个挂在网关 cgroup 里的野进程，下次网关重启又"丢"一次。
+
+### 面板/候选窗缺失（图标不显示、切换无提示、输入无候选）
+
+fcitx 主进程正常（`fcitx-remote` 返回 2）但桌面**看不到 UI**——经典 UI（classic-ui）不产生面板图标，kimpanel-ui 依赖独立的 `fcitx-qimpanel` 进程：
+
+**诊断**：
+```bash
+pgrep -af fcitx-qimpanel          # 无输出 = 面板进程没跑
+ls /home/bobobears/.config/xfce4/panel/   # 无 fcitx applet = Xfce 面板没挂
+```
+
+**修复**：
+1. `sudo apt-get install -y fcitx-ui-qimpanel`（包已存在时跳过）
+2. 系统 autostart 已就位（`/etc/xdg/autostart/fcitx-qimpanel-autostart.desktop`），Xfce 登录时自动拉起
+3. 当前会话立即启动：`DISPLAY=:10 XDG_RUNTIME_DIR=/run/user/1000 fcitx-qimpanel`（用 terminal `background=true` 起，别用 `&`/`nohup`/`setsid`——Hermes 会拒绝 shell 级后台包装器）
+
+**验证**：`pgrep -af fcitx-qimpanel` 有进程 + 桌面右上角出现输入法图标 + Ctrl+Space 切换有候选窗。
+
+**坑**：
+- `fcitx-ui-qimpanel` 是**独立进程**（不是 fcitx 插件），fcitx 诊断全绿不代表它在跑——fcitx-diagnose 不检查 qimpanel 进程。
+- 系统级 autostart（`/etc/xdg/autostart/`）对 Xfce 会话有效，不需要额外配置 `~/.config/autostart/`。
+- 若 qimpanel 进程被网关重启连坐杀掉（和 fcitx 主进程同理），重连后需重新拉起，或写独立 systemd 用户单元。
+
+### ⚠️ 绝对不要用 `fcitx-remote -r`（reload）重启 fcitx
+
+这是本机反复"故障再次出现"的元凶：`fcitx-remote -r`（或 `-e` 退出）会让 fcitx **进程还活着但 X11 连接断开**——日志里出现 `(FATAL xim.c) X11 未初始化`，之后 `fcitx-remote` 仍返回 2（状态查询走 DBus，不反映 X11），但桌面 UI 全挂：无图标、无切换提示、无候选窗。用户表现为"刚修好又坏了"。
+
+**正确重启方式**：`systemctl --user restart fcitx-ime.service`（按 cgroup 收干净 + 用 unit 里的环境变量重连 :10），别用 `fcitx-remote -r` / `-e`。
+
+**若已经踩了坑**（进程在但 X11 断了）：`systemctl --user restart fcitx-ime.service`，然后 `journalctl --user -u fcitx-ime.service --no-pager -n 30 | grep -i FATAL` 确认无新的 `X11 未初始化`，再 `DISPLAY=:10 fcitx-remote` 应返回 2。
+
+### 候选框颜色/皮肤切换
+
+候选窗颜色由 UI 皮肤决定，两套 UI 各看各的配置：
+
+| UI | 皮肤配置位置 | 本机可选皮肤 |
+|----|-------------|-------------|
+| classic-ui | `~/.config/fcitx/conf/fcitx-classic-ui.config` → `[ClassicUI]` `SkinType=` | `/usr/share/fcitx/skin/`：`classic`(经典红)、`dark`(暗色蓝)、`default`(默认蓝) |
+| qimpanel | `~/.config/fcitx-qimpanel/main.conf` → `[base]` `CurtSkinType=` | `/usr/share/fcitx-qimpanel/skin/`：`ubuntu-orange`(橙红)、`ubuntu-milk`(白底)、`ubuntu-grey`(灰底) |
+
+- **用户偏好蓝色候选框**：classic-ui 用 `SkinType=default`（候选词蓝 `101 153 209`、光标橙红）或 `dark`（首选词蓝 `118 147 255`）。qimpanel 的 `ubuntu-milk` 是白底偏蓝，`ubuntu-orange` 是橙红（用户嫌红）。
+- 改完皮肤后 **classic-ui 需 `systemctl --user restart fcitx-ime.service` 才生效**（fcitx 主进程读皮肤）；qimpanel 改完需重启 qimpanel 进程（`pkill fcitx-qimpanel` 再 background 拉起）。
+- 皮肤具体颜色值见各 `/usr/share/fcitx/skin/<名>/fcitx_skin.conf` 的 `[SkinFont]` 段（`FirstCandColor`/`OtherColor`/`CursorColor` 等）。
+
+### 面板进程也要 systemd 化（可选，防连坐）
+
+qimpanel 若用 Hermes terminal `background=true` 起，仍挂在网关 cgroup 里，网关重启会被连坐。要根治就仿照 fcitx-ime.service 写 `fcitx-qimpanel.service`（同样 `Type=forking` 或 `Type=simple`——qimpanel 不 fork 用 `simple` 即可，写 `Restart=always`）。

@@ -270,6 +270,14 @@ SELECT seq_no, name, diagnosis, remark FROM patients WHERE remark LIKE '%长期�
   - **必须用 `exact`**：设 `line=240 lineRule=auto`（单倍）对这段**完全无效**（该段行高本来就不是段落级 spacing 决定的，渲染逐像素不变）；也不要靠改下页边距掩。
   - 验收：`pdfinfo` 页数=1；150dpi 下注释三行 y≈1529/1556/1583（行距 27px、字高 20px），末行底部 1602 < 可打印底 1612；表格左右竖线仍为 x=168/1077。
 
+## 长效针剂申请（每年11月）
+
+- 汪李富（seq_no=13）每年**十一月份左右**申请棕榈酸帕利哌酮注射液（长效针剂）门诊治疗。
+- 申请时：更新 `report_cards.drug1`（如已有则 update），`documents` 插入申请表记录，`change_log` 留痕。
+- **每年10月底/11月初主动提醒金医生**：汪李富长效针剂申请季到了，是否需要录入新一年申请。
+- 申请表模板：`~/下载/精神障碍管理/长效针剂门诊治疗申请表.doc`（WPS .doc，soffice 可转 txt 读）。
+- 2026-11-10 首次录入：doc_id=1, report_cards id=5。
+
 ## 体检备案（用户报"X 已体检，日期 M月D日"）
 
 - **落库 = `follow_up_records` 单独建条目**，不写进随访分类/其他字段。`remark` 列存备注 `已体检，体检日期YYYY-MM-DD`，`follow_up_date` 填体检日期，其余字段留空不臆造。

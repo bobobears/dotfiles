@@ -908,6 +908,10 @@ Common gateway problems:
 - **Gateway dies on SSH logout**: Enable linger: `sudo loginctl enable-linger $USER`
 - **Gateway dies on WSL2 close**: WSL2 requires `systemd=true` in `/etc/wsl.conf` for systemd services to work. Without it, gateway falls back to `nohup` (dies when session closes).
 - **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed hermes-gateway`
+- **iLink WeChat channel requires gateway restart** after toggling `platforms.weixin.enabled` (unlike most channels that hot-apply). The WeChat bot connection is initialized at gateway startup; flipping the config flag alone does not re-establish or tear down the bot.
+- **Ambiguous "托管" phrasing**: When the user says "解除微信托管" (remove WeChat supervision), confirm whether they mean (a) disable the channel entirely, (b) remove rate-limiting / pairing restrictions but keep the channel active, or (c) something else. "托管" is ambiguous — it could mean "take over management" or "put under supervision." Ask before acting on channel enable/disable when the phrasing is unclear.
+- **WeChat rate-limit circuit breaker**: `platforms.weixin.extra.rate_limit_circuit_open_seconds` controls how long (seconds) the channel stays disabled after a rate-limit failure. Set to `0` to disable the circuit breaker (no auto-recovery delay).
+- **User unit in auto-restart loop, ExecStartPre killed by TERM**: A `pkill -f "<pattern>"` inside `ExecStartPre=/bin/sh -c '...'` matches the `sh -c`'s own command line and kills the unit's startup before the app ever starts (log shows `Control process exited, code=killed, status=15/TERM`, counter climbing). Diagnose with `journalctl --user -u <unit> -n 50 --no-pager`; fix by matching the real process, not the string: `pgrep -x <exe> -f "^<exe>.*<pattern>"`. General rule: never `pkill -f` a pattern that appears in your own command line — `systemctl --user stop` (cgroup-scoped) is the clean alternative.
 
 ### Platform-specific issues
 - **Discord bot silent**: Must enable **Message Content Intent** in Bot → Privileged Gateway Intents.

@@ -239,6 +239,7 @@ fcitx-module-x11				install
 fcitx-modules					install
 fcitx-pinyin					install
 fcitx-ui-classic				install
+fcitx-ui-qimpanel				install
 fdisk						install
 ffmpeg						install
 file						install
@@ -1594,7 +1595,9 @@ libqt5gui5t64:arm64				install
 libqt5network5t64:arm64				install
 libqt5qml5:arm64				install
 libqt5qmlmodels5:arm64				install
+libqt5qmlworkerscript5:arm64			install
 libqt5quick5:arm64				install
+libqt5quickwidgets5:arm64			install
 libqt5svg5:arm64				install
 libqt5waylandclient5:arm64			install
 libqt5waylandcompositor5:arm64			install
@@ -2433,6 +2436,7 @@ python3.12					install
 python3.12-dev					install
 python3.12-minimal				install
 python3.12-venv					install
+qml-module-qtquick2:arm64			install
 qt5-gtk-platformtheme:arm64			install
 qt6-gtk-platformtheme:arm64			install
 qt6-qpa-plugins:arm64				install

@@ -1,8 +1,8 @@
-LAN subnet: 192.168.31.0/24, router: 192.168.31.1 (Xiaomi/XiaoQiang), Dell machine: 192.168.31.113, this machine: 192.168.31.149。本机局域网应用端口：HRMS 8000、会议通知发布台 8077（~/meeting_notice，systemd --user meeting-notice）
+LAN 192.168.31.0/24, 路由 .1, Dell .113, 本机 .149。局域网端口：HRMS 8000、会议通知 8077、dsh-web 3080(token从journal取)。systemd陷阱：ExecStartPre 里 pkill -f "xxx" 会匹配到执行它的 sh -c 自身命令行致自杀重启循环，用 pgrep -x <进程名> -f 精确匹配
 §
 新技能安全审计规则：创建/安装任何新技能后，必须用 security-audit 的 audit_skills.py 审计该技能（批量入库等场景用户也会主动要求），确认无 HIGH/MEDIUM 问题才交付。
 §
-三者DM策略均pairing。WeCom自建应用回调需公网HTTPS; 日志查 logs/gateway.log。iLink微信 ret=-2 实为 session not ready(prepare failed)：需该微信账号先主动给 bot 发一条消息重建会话(或重配对)，**不是限流**；cron通知统一走飞书；weixin.extra send_chunk_delay_seconds=4s、circuit 60s（改后须用户外部重启 gateway）
+三者DM策略均pairing。WeCom自建应用回调需公网HTTPS; 日志查 logs/gateway.log。微信渠道已停用(config.yaml weixin.enabled=false, 2026-11-12 用户要求解除托管，日报cron f61b57775a68已删)；cron通知统一走飞书
 §
 通达信盘后数据路径: /home/bobobears/thinclient_drives/E:/zd_hazq_gm/vipdoc/{sz,sh}/lday/。深交所 sz{code}.day，上交所 sh{code}.day。struct格式 <iiiiifii，价格缩放100。每日分析 cron job (c1da698090bf) 已配置为外网搜索失败时的 fallback 数据源。
 §
@@ -42,7 +42,7 @@ Hermes web 后端=tavily(密钥在.env)，firecrawl 作 keyless 兜底；排障�
 §
 本机桌面=xrdp DISPLAY :10(2560x1440，单屏)。输入法 fcitx4 由 systemd 用户单元 fcitx-ime.service 常驻，勿在网关内启动(网关重启即丢)
 §
-本机 GB10 统一内存 121GiB(CPU/GPU 共用)，nvidia-smi 报 N/A。内存耗尽时加载 30GB 模型 → NVRM NV_ERR_NO_MEMORY → 整机硬挂(无 systemd 关机流程)。本地推理：llama-server.service(user) 127.0.0.1:1234，qwen3.8-27b@q8_0，~/models/qwen3.8-27b，llama-run.sh 预检(<55G拒载)。2026-11-03已加--mmproj，主服务直接支持图片/vision_analyze，不用起临时1235实例。内存看门狗 mem-guard.timer：<55G飞书告警/<30G停llama-server/<10G杀最大进程。Hermes桌面App后端曾膨胀到86-90GB被OOM连杀。细节见 skill lm-studio
+本机 GB10 统一内存 121GiB(CPU/GPU 共用)，nvidia-smi 报 N/A。内存耗尽时加载 30GB 模型 → NVRM NV_ERR_NO_MEMORY → 整机硬挂(无 systemd 关机流程)。本地推理：llama-server.service(user) 127.0.0.1:1234，qwen3.8-27b@q8_0，~/models/qwen3.8-27b，llama-run.sh 预检(<55G拒载)。2026-11-03已加--mmproj，主服务直接支持图片/vision_analyze，不用起临时1235实例。mem-guard.timer：WARN<55G只日志、CRIT<30G停llama+飞书（用户设的极限值，未达不反馈）、DANGER<10G杀进程兜底；脚本~/.local/bin/mem-guard.sh。桌面App后端曾膨胀86-90GB被OOM连杀。详见 skill lm-studio
 §
 记忆规范：更新时精化而非覆盖，变更留旧值→新值+原因+日期；stale条目主动标记。周度consolidation cron周六17:30。任务结束须明说结论
 §
